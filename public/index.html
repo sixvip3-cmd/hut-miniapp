@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>HUT Builder</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="view-team" class="view active">
+    <section class="summary">
+      <div class="stat"><span class="stat-label">OVR</span><b id="sum-ovr">0</b></div>
+      <div class="stat"><span class="stat-label">Зарплата</span><b id="sum-salary">$0M</b><small id="sum-cap"></small></div>
+      <div class="stat"><span class="stat-label">AP</span><b id="sum-ap">0/40</b></div>
+    </section>
+
+    <div class="segmented" id="team-mode">
+      <button data-mode="lineup" class="active">Состав</button>
+      <button data-mode="chem">Сыгранность</button>
+    </div>
+
+    <section id="lineup"></section>
+
+    <section id="chem" hidden>
+      <div class="segmented small" id="chem-type">
+        <button data-type="salary" class="active">SALARY</button>
+        <button data-type="ovr">OVR</button>
+        <button data-type="ap">AP</button>
+      </div>
+      <p class="hint" id="chem-hint"></p>
+      <div id="chem-lines"></div>
+    </section>
+
+    <button class="btn-ghost" id="clear-lineup">Очистить состав</button>
+  </main>
+
+  <main id="view-market" class="view">
+    <div class="market-head">
+      <input id="market-search" type="search" placeholder="Поиск игрока, команды, программы…">
+      <select id="market-sort">
+        <option value="price-desc">Цена ↓</option>
+        <option value="price-asc">Цена ↑</option>
+        <option value="change-desc">Рост</option>
+        <option value="change-asc">Падение</option>
+        <option value="ovr-desc">OVR ↓</option>
+      </select>
+    </div>
+    <p class="hint" id="market-updated"></p>
+    <div id="market-list"></div>
+  </main>
+
+  <nav class="tabbar">
+    <button data-view="team" class="active"><span>🏒</span>Команда</button>
+    <button data-view="market"><span>📈</span>Маркет</button>
+  </nav>
+
+  <!-- Поиск игрока для слота -->
+  <div class="sheet" id="picker" hidden>
+    <div class="sheet-body">
+      <div class="sheet-head">
+        <b id="picker-title">Выбор игрока</b>
+        <button class="close" data-close>✕</button>
+      </div>
+      <input id="picker-search" type="search" placeholder="Имя, команда, страна…">
+      <label class="check"><input type="checkbox" id="picker-allpos"> Показать все позиции</label>
+      <div id="picker-list"></div>
+      <button class="btn-danger" id="picker-remove" hidden>Убрать из состава</button>
+    </div>
+  </div>
+
+  <!-- Карточка игрока в маркете -->
+  <div class="sheet" id="details" hidden>
+    <div class="sheet-body">
+      <div class="sheet-head">
+        <b id="details-title"></b>
+        <button class="close" data-close>✕</button>
+      </div>
+      <div id="details-content"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="chemistry.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

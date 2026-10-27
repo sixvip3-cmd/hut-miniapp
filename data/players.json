@@ -1,0 +1,22 @@
+[
+  {"id":"mackinnon-lr","name":"Nathan MacKinnon","program":"Legends Rising","ovr":88,"pos":"C","alt":["LW"],"salary":6.0,"ap":2,"team":"COL","nation":"CAN","price":185000},
+  {"id":"messier-icon","name":"Mark Messier","program":"Icons","ovr":89,"pos":"C","alt":[],"salary":7.0,"ap":3,"team":"NYR","nation":"CAN","price":420000},
+  {"id":"connor-lr","name":"Kyle Connor","program":"Legends Rising","ovr":88,"pos":"LW","alt":["RW"],"salary":6.0,"ap":2,"team":"WPG","nation":"USA","price":160000},
+  {"id":"mcavoy-gold","name":"Charlie McAvoy","program":"Legends Rising","ovr":88,"pos":"RD","alt":["LD"],"salary":6.0,"ap":2,"team":"BOS","nation":"USA","price":140000},
+  {"id":"werenski-lr","name":"Zach Werenski","program":"Legends Rising","ovr":88,"pos":"LD","alt":["RD"],"salary":6.0,"ap":2,"team":"CBJ","nation":"USA","price":150000},
+  {"id":"kane-eras","name":"Patrick Kane","program":"Eras","ovr":89,"pos":"RW","alt":["LW"],"salary":7.0,"ap":3,"team":"CHI","nation":"USA","price":310000},
+  {"id":"francis-capt","name":"Ron Francis","program":"Captains","ovr":89,"pos":"C","alt":["LW"],"salary":7.0,"ap":3,"team":"CAR","nation":"CAN","price":290000},
+  {"id":"carson-heroes","name":"Jimmy Carson","program":"Heroes","ovr":89,"pos":"RW","alt":["C"],"salary":7.0,"ap":3,"team":"LAK","nation":"USA","price":230000},
+  {"id":"doughty-eras","name":"Drew Doughty","program":"Eras","ovr":88,"pos":"RD","alt":["LD"],"salary":7.0,"ap":3,"team":"LAK","nation":"CAN","price":175000},
+  {"id":"bourque-icon","name":"Ray Bourque","program":"Icons","ovr":89,"pos":"LD","alt":["RD"],"salary":8.0,"ap":3,"team":"BOS","nation":"CAN","price":510000},
+  {"id":"tkachuk-lr","name":"Brady Tkachuk","program":"Legends Rising","ovr":87,"pos":"LW","alt":[],"salary":6.0,"ap":2,"team":"FLA","nation":"USA","price":95000},
+  {"id":"bergeron-totw","name":"Patrice Bergeron","program":"TOTW","ovr":87,"pos":"C","alt":[],"salary":6.0,"ap":2,"team":"BOS","nation":"CAN","price":120000},
+  {"id":"hughes-spot","name":"Jack Hughes","program":"Spotlight","ovr":88,"pos":"C","alt":["RW"],"salary":7.0,"ap":2,"team":"NJD","nation":"USA","price":205000},
+  {"id":"karlsson-eras","name":"Erik Karlsson","program":"Eras","ovr":88,"pos":"RD","alt":["LD"],"salary":7.0,"ap":3,"team":"OTT","nation":"SWE","price":190000},
+  {"id":"chara-eras","name":"Zdeno Chara","program":"Eras","ovr":88,"pos":"LD","alt":[],"salary":7.0,"ap":3,"team":"BOS","nation":"SVK","price":165000},
+  {"id":"perry-eras","name":"Corey Perry","program":"Eras","ovr":88,"pos":"RW","alt":["LW"],"salary":7.0,"ap":3,"team":"ANA","nation":"CAN","price":130000},
+  {"id":"modano-icon","name":"Mike Modano","program":"Icons","ovr":88,"pos":"C","alt":[],"salary":7.0,"ap":3,"team":"DAL","nation":"USA","price":360000},
+  {"id":"kucherov-xp","name":"Nikita Kucherov","program":"XP","ovr":89,"pos":"RW","alt":[],"salary":8.0,"ap":3,"team":"TBL","nation":"RUS","price":280000},
+  {"id":"oettinger-lr","name":"Jake Oettinger","program":"Legends Rising","ovr":88,"pos":"G","alt":[],"salary":6.0,"ap":2,"team":"DAL","nation":"USA","price":145000},
+  {"id":"vejmelka-crest","name":"Karel Vejmelka","program":"Crest","ovr":86,"pos":"G","alt":[],"salary":4.0,"ap":1,"team":"UTA","nation":"CZE","price":40000}
+]
