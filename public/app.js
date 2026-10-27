@@ -2,36 +2,63 @@ const tg = window.Telegram?.WebApp;
 tg?.ready();
 tg?.expand();
 
-const STORAGE_KEY = 'hut-lineup-v1';
+const STORAGE_KEY = 'hut-lineup-v2';
 const PRICE_REFRESH_MS = 60 * 60 * 1000;
+const PAGE_SIZE = 60;
 
-const FLAGS = { CAN: '🇨🇦', USA: '🇺🇸', SWE: '🇸🇪', FIN: '🇫🇮', RUS: '🇷🇺', CZE: '🇨🇿', SVK: '🇸🇰', GER: '🇩🇪', SUI: '🇨🇭', LAT: '🇱🇻', DEN: '🇩🇰', AUT: '🇦🇹', NOR: '🇳🇴', BLR: '🇧🇾', SLO: '🇸🇮' };
-const PROGRAM_COLORS = {
-  'Icons': ['#6b5212', '#1a1406'],
-  'Legends Rising': ['#8a1f5c', '#1c0d1e'],
-  'Eras': ['#7a7f8a', '#24272e'],
-  'Heroes': ['#3a3d44', '#111216'],
-  'Captains': ['#b3151d', '#3a0709'],
-  'TOTW': ['#7a1fa3', '#25082f'],
-  'Spotlight': ['#a3211b', '#2e0807'],
+const FLAGS = {
+  CANADA: '🇨🇦', USA: '🇺🇸', SWEDEN: '🇸🇪', FINLAND: '🇫🇮', RUSSIA: '🇷🇺', CZECHIA: '🇨🇿', SLOVAKIA: '🇸🇰',
+  GERMANY: '🇩🇪', SWITZERLAND: '🇨🇭', LATVIA: '🇱🇻', DENMARK: '🇩🇰', AUSTRIA: '🇦🇹', NORWAY: '🇳🇴',
+  BELARUS: '🇧🇾', SLOVENIA: '🇸🇮', FRANCE: '🇫🇷', ITALY: '🇮🇹', KAZAKHSTAN: '🇰🇿', UKRAINE: '🇺🇦',
+  POLAND: '🇵🇱', HUNGARY: '🇭🇺', JAPAN: '🇯🇵', 'GREAT BRITAIN': '🇬🇧', NETHERLANDS: '🇳🇱', AUSTRALIA: '🇦🇺',
+};
+const CARD_COLORS = {
+  'ICONS': ['#6b5212', '#1a1406'],
+  'ALUMNI': ['#5a4a2a', '#1c170e'],
+  'BASE': ['#3a3f4a', '#16181d'],
+  'ERAS: 2010S': ['#7a7f8a', '#24272e'],
+  'CAPTAINS': ['#b3151d', '#3a0709'],
+  'TEAM OF THE WEEK': ['#7a1fa3', '#25082f'],
+  'SPOTLIGHT': ['#a3211b', '#2e0807'],
   'XP': ['#1d3fa8', '#0a1233'],
-  'Crest': ['#2f78c4', '#0e2340'],
+  'FOR THE CREST': ['#2f78c4', '#0e2340'],
+  'FANTASY HOCKEY': ['#0f7a52', '#06261a'],
+  'FRIGHT NIGHT': ['#d4580f', '#2a1003'],
+  'LAUNCH POINT': ['#8a1f5c', '#1c0d1e'],
+  'NEW WAVE': ['#0f8a8a', '#052626'],
+  'CHEL WEEK': ['#2a8a2f', '#0a260c'],
+  'TRANSACTIONS': ['#4a5a7a', '#141a26'],
 };
 
 const state = {
   players: [],
   byId: {},
-  prices: { prices: {}, updatedAt: null, nextUpdateAt: null },
+  combos: [],
+  prices: { prices: {}, updatedAt: null },
   lineup: {},
-  chemType: 'salary',
+  chemType: 'SAL',
   pickerSlot: null,
+  marketLimit: PAGE_SIZE,
 };
 
 const $ = sel => document.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const flag = n => FLAGS[n] || '🏳️';
-const fmtPrice = v => (v == null ? '—' : v.toLocaleString('ru-RU'));
-const haptic = type => tg?.HapticFeedback?.impactOccurred?.(type || 'light');
+const flag = n => FLAGS[String(n).toUpperCase()] || '🏳️';
+const fmtPrice = v => (v ? `${v.toLocaleString('ru-RU')}c` : '—');
+const haptic = type => {
+  try { if (tg?.isVersionAtLeast?.('6.1')) tg.HapticFeedback.impactOccurred(type || 'light'); } catch {}
+};
+const priceOf = p => state.prices.prices[p.id]?.price || 0;
+const surname = name => name.split(' ').slice(1).join(' ') || name;
+
+function timeAgo(iso) {
+  if (!iso) return '';
+  const min = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (min < 60) return `${Math.max(min, 1)} мин назад`;
+  const h = Math.round(min / 60);
+  if (h < 24) return `${h} ч назад`;
+  return `${Math.round(h / 24)} дн назад`;
+}
 
 function toast(text) {
   const el = $('#toast');
@@ -42,10 +69,15 @@ function toast(text) {
 }
 
 // ---------- Хранение состава ----------
+// CloudStorage есть только внутри Telegram 6.9+, в браузере и старых клиентах он бросает исключение.
+const hasCloud = () => !!(tg?.initData && tg.isVersionAtLeast?.('6.9') && tg.CloudStorage);
+
 function saveLineup() {
   const data = JSON.stringify(state.lineup);
   try { localStorage.setItem(STORAGE_KEY, data); } catch {}
-  tg?.CloudStorage?.setItem(STORAGE_KEY, data, () => {});
+  if (hasCloud()) {
+    try { tg.CloudStorage.setItem(STORAGE_KEY, data, () => {}); } catch {}
+  }
 }
 
 function loadLineup() {
@@ -53,7 +85,7 @@ function loadLineup() {
     const fromLocal = () => {
       try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
     };
-    if (!tg?.CloudStorage || !tg.initData) return resolve(fromLocal());
+    if (!hasCloud()) return resolve(fromLocal());
     tg.CloudStorage.getItem(STORAGE_KEY, (err, value) => {
       if (err || !value) return resolve(fromLocal());
       try { resolve(JSON.parse(value)); } catch { resolve(fromLocal()); }
@@ -64,16 +96,25 @@ function loadLineup() {
 // ---------- Позиции ----------
 function slotAccepts(slot, p) {
   if (slot === 'STARTER' || slot === 'BACKUP') return p.pos === 'G';
-  return p.pos === slot || (p.alt || []).includes(slot);
+  return p.pos === slot;
 }
 const slotOf = key => key.split('-')[1];
 const inLineup = id => Object.values(state.lineup).includes(id);
 
 // ---------- Карточка ----------
-function cardHtml(p, slot) {
-  if (!p) {
-    return `<div class="plus">+</div><div class="slot">${esc(slot)}</div>`;
+function cardStyle(p) {
+  let colors = CARD_COLORS[p?.card?.toUpperCase()];
+  if (!colors && p) {
+    let h = 0;
+    for (const ch of p.card) h = (h * 31 + ch.charCodeAt(0)) % 360;
+    colors = [`hsl(${h} 45% 32%)`, `hsl(${h} 45% 10%)`];
   }
+  const [c1, c2] = colors || ['#2a2f3a', '#14171d'];
+  return `--c1:${c1};--c2:${c2}`;
+}
+
+function cardHtml(p, slot) {
+  if (!p) return `<div class="plus">+</div><div class="slot">${esc(slot)}</div>`;
   const off = slot && !slotAccepts(slot, p) ? '<span class="offpos">не своя</span>' : '';
   return `
     ${off}
@@ -82,15 +123,13 @@ function cardHtml(p, slot) {
       <div class="flag">${flag(p.nation)}</div>
     </div>
     <div>
-      <div class="name">${esc(p.name.split(' ').slice(-1)[0])}</div>
-      <div class="meta"><span>${esc(p.team)}</span><span>$${p.salary.toFixed(1)}M</span></div>
+      <div class="cardtype">${esc(p.card)}</div>
+      <div class="name">${esc(surname(p.name))}</div>
+      <div class="meta"><span>$${p.salary.toFixed(1)}M</span></div>
     </div>`;
 }
 
-function cardStyle(p) {
-  const [c1, c2] = PROGRAM_COLORS[p?.program] || ['#2a2f3a', '#14171d'];
-  return `--c1:${c1};--c2:${c2}`;
-}
+const reqLabel = r => (r.type === 'nation' ? `${flag(r.nation)} ${r.label}` : r.label);
 
 // ---------- Вкладка «Команда» ----------
 function renderSummary(sum) {
@@ -98,15 +137,15 @@ function renderSummary(sum) {
   const salaryEl = $('#sum-salary');
   salaryEl.textContent = `$${sum.salary.toFixed(1)}M`;
   salaryEl.classList.toggle('over', sum.salary > sum.salaryCap);
-  $('#sum-cap').textContent = `кап $${sum.salaryCap.toFixed(1)}M (+${sum.salaryBonus})`;
-  $('#sum-ap').textContent = `${sum.ap}/${CHEMISTRY.maxAp}`;
+  $('#sum-cap').textContent = `кап $${sum.salaryCap}M (+${sum.boost.SAL})`;
+  $('#sum-ap').textContent = `${sum.boost.AP}/${CHEMISTRY.maxAp}`;
 }
 
-function bonusChips(b) {
+function bonusChips(t) {
   return `
-    <span class="chip ovr ${b.ovr.value ? 'on' : ''}">+${b.ovr.value} OVR</span>
-    <span class="chip salary ${b.salary.value ? 'on' : ''}">+$${b.salary.value}M</span>
-    <span class="chip ap ${b.ap.value ? 'on' : ''}">+${b.ap.value} AP</span>`;
+    <span class="chip ovr ${t.OVR ? 'on' : ''}">+${t.OVR} OVR</span>
+    <span class="chip salary ${t.SAL ? 'on' : ''}">+$${t.SAL}M</span>
+    <span class="chip ap ${t.AP ? 'on' : ''}">+${t.AP} AP</span>`;
 }
 
 function renderLineup(sum) {
@@ -114,7 +153,7 @@ function renderLineup(sum) {
     <div class="line">
       <div class="line-head">
         <span class="line-title">${line.label}</span>
-        <span class="chips">${bonusChips(sum.lines[line.id])}</span>
+        <span class="chips">${bonusChips(sum.lines[line.id].total)}</span>
       </div>
       <div class="slots n${line.slots.length}">
         ${line.slots.map(slot => {
@@ -126,40 +165,71 @@ function renderLineup(sum) {
     </div>`).join('');
 }
 
+function boostText(type, v) {
+  return type === 'SAL' ? `+$${v}M` : `+${v} ${type}`;
+}
+
 function renderChem(sum) {
   const type = state.chemType;
-  const cfg = CHEMISTRY.types[type];
-  const unit = v => (type === 'salary' ? `+$${v}M` : `+${v} ${cfg.label}`);
-  $('#chem-hint').textContent = `${cfg.label}-бонус даёт совпадение по признаку «${cfg.attrLabel}» у игроков одной линии.`;
-
-  const tiers = CHEMISTRY.bonuses[type];
-  const tierText = `Звено (3): 2 совпадения ${unit(tiers[3][2])}, 3 совпадения ${unit(tiers[3][3])} · Пара (2): ${unit(tiers[2][2])}`;
+  const color = `var(--${CHEMISTRY.types[type].color})`;
+  $('#chem-hint').textContent =
+    'Комбинация срабатывает, когда каждое её требование закрыто отдельным игроком линии. Данные о комбинациях — hutdb.app.';
 
   $('#chem-lines').innerHTML = LINES.map(line => {
-    const b = sum.lines[line.id][type];
-    const rows = line.slots.map(slot => {
-      const p = state.byId[state.lineup[`${line.id}-${slot}`]];
-      if (!p) return `<div class="chem-row"><span class="who" style="color:var(--hint)">${slot} — пусто</span></div>`;
-      const v = p[cfg.attr];
-      const match = b.count >= 2 && v === b.match;
-      return `<div class="chem-row">
-        <span class="who">${flag(p.nation)} ${esc(p.name)}</span>
-        <span class="attr ${match ? 'match' : ''}">${esc(v)}</span>
-      </div>`;
-    }).join('');
+    const players = line.slots.map(s => state.byId[state.lineup[`${line.id}-${s}`]]).filter(Boolean);
+    const chem = sum.lines[line.id];
+    const active = chem.active.filter(a => a.combo.boost[type]);
+    const activeHtml = active.map(a => `
+      <div class="combo on">
+        <span class="combo-boost" style="color:${color}">${boostText(type, a.combo.boost[type])}</span>
+        <span class="reqs">${a.combo.reqs.map((r, i) => `<span class="req ok">${esc(reqLabel(r))}<small>${esc(surname(a.players[i].name))}</small></span>`).join('')}</span>
+      </div>`).join('');
+    const misses = players.length ? nearMisses(line, players, state.combos, type, 2) : [];
+    const missHtml = misses.map(m => `
+      <div class="combo">
+        <span class="combo-boost">${boostText(type, m.combo.boost[type])}</span>
+        <span class="reqs">${m.combo.reqs.map(r => `<span class="req ${r === m.missing ? 'need' : 'ok'}">${esc(reqLabel(r))}</span>`).join('')}</span>
+      </div>`).join('');
     return `<div class="line">
       <div class="line-head">
         <span class="line-title">${line.label}</span>
-        <span class="bonus-big ${b.value ? '' : 'zero'}" style="color:${b.value ? `var(--${type === 'ovr' ? 'cyan' : type === 'ap' ? 'purple' : 'green'})` : ''}">${unit(b.value)}</span>
-      </div>${rows}</div>`;
-  }).join('') + `<div class="tiers">${tierText}</div>`;
+        <span class="bonus-big ${chem.total[type] ? '' : 'zero'}" style="${chem.total[type] ? `color:${color}` : ''}">${boostText(type, chem.total[type])}</span>
+      </div>
+      ${players.length ? '' : '<p class="hint">Линия пустая</p>'}
+      ${activeHtml}
+      ${missHtml ? `<p class="hint sub">Не хватает одного игрока (выделено):</p>${missHtml}` : ''}
+    </div>`;
+  }).join('');
 }
 
 function renderTeam() {
-  const sum = teamSummary(state.lineup, state.byId);
+  const sum = teamSummary(state.lineup, state.byId, state.combos);
   renderSummary(sum);
   renderLineup(sum);
   renderChem(sum);
+}
+
+// ---------- Поиск ----------
+function matchesQuery(p, q) {
+  if (!q) return true;
+  const hay = p._hay || (p._hay = `${p.name} ${p.team} ${p.nation} ${p.card} ${p.pos} ${p.league}`.toLowerCase());
+  return q.toLowerCase().split(/\s+/).every(w => hay.includes(w));
+}
+
+function changeHtml(id) {
+  const pr = state.prices.prices[id];
+  if (!pr?.prev) return '';
+  const ch = ((pr.price - pr.prev) / pr.prev) * 100;
+  const cls = ch > 0.05 ? 'up' : ch < -0.05 ? 'down' : 'flat';
+  return `<small class="${cls}">${ch > 0 ? '+' : ''}${ch.toFixed(1)}%</small>`;
+}
+
+function playerRow(p, extra = '') {
+  return `<button class="mrow" data-id="${p.id}">
+    <span class="badge" style="${cardStyle(p)}">${p.ovr}</span>
+    <span class="info"><b>${flag(p.nation)} ${esc(p.name)}</b><small>${esc(p.pos)} · ${esc(p.card)} · ${esc(p.team)} · $${p.salary.toFixed(1)}M</small></span>
+    <span class="price">${fmtPrice(priceOf(p))}${extra}</span>
+  </button>`;
 }
 
 // ---------- Выбор игрока ----------
@@ -173,39 +243,24 @@ function openPicker(key) {
   $('#picker-allpos').checked = false;
   renderPickerList();
   $('#picker').hidden = false;
-}
-
-function matchesQuery(p, q) {
-  if (!q) return true;
-  const hay = `${p.name} ${p.team} ${p.nation} ${p.program} ${p.pos}`.toLowerCase();
-  return q.toLowerCase().split(/\s+/).every(w => hay.includes(w));
-}
-
-function marketRow(p, extra = '') {
-  const pr = state.prices.prices[p.id];
-  const price = pr?.price ?? p.price;
-  return `<button class="mrow" data-id="${esc(p.id)}">
-    <span class="badge" style="${cardStyle(p)}">${p.ovr}</span>
-    <span class="info"><b>${flag(p.nation)} ${esc(p.name)}</b><small>${esc(p.pos)} · ${esc(p.team)} · ${esc(p.program)} · $${p.salary.toFixed(1)}M</small></span>
-    <span class="price">${fmtPrice(price)}${extra}</span>
-  </button>`;
+  setTimeout(() => $('#picker-search').focus(), 50);
 }
 
 function renderPickerList() {
   const slot = slotOf(state.pickerSlot);
   const q = $('#picker-search').value.trim();
   const allPos = $('#picker-allpos').checked;
-  const list = state.players
-    .filter(p => (allPos || slotAccepts(slot, p)) && matchesQuery(p, q))
-    .sort((a, b) => b.ovr - a.ovr)
-    .slice(0, 100);
+  const list = [];
+  for (const p of state.players) {
+    if ((allPos || slotAccepts(slot, p)) && matchesQuery(p, q)) list.push(p);
+    if (list.length >= PAGE_SIZE) break;
+  }
   $('#picker-list').innerHTML = list.length
-    ? list.map(p => marketRow(p, inLineup(p.id) ? '<small class="flat">в составе</small>' : '')).join('')
+    ? list.map(p => playerRow(p, inLineup(p.id) ? '<small class="flat">в составе</small>' : '')).join('')
     : '<p class="hint">Никого не нашли</p>';
 }
 
 function assign(key, id) {
-  // Один игрок — один слот: убираем его со старого места.
   for (const [k, v] of Object.entries(state.lineup)) if (v === id) delete state.lineup[k];
   state.lineup[key] = id;
   saveLineup();
@@ -214,43 +269,38 @@ function assign(key, id) {
 }
 
 // ---------- Маркет ----------
-function priceChange(id) {
-  const pr = state.prices.prices[id];
-  if (!pr || pr.prev == null || !pr.prev) return null;
-  return ((pr.price - pr.prev) / pr.prev) * 100;
-}
-
-function changeHtml(ch) {
-  if (ch == null) return '<small class="flat">—</small>';
-  const cls = ch > 0.05 ? 'up' : ch < -0.05 ? 'down' : 'flat';
-  return `<small class="${cls}">${ch > 0 ? '+' : ''}${ch.toFixed(1)}%</small>`;
-}
-
 function renderMarket() {
   const q = $('#market-search').value.trim();
   const sort = $('#market-sort').value;
-  const priceOf = p => state.prices.prices[p.id]?.price ?? p.price ?? 0;
+  const onlyPriced = $('#market-priced').checked;
+  const change = p => {
+    const pr = state.prices.prices[p.id];
+    return pr?.prev ? (pr.price - pr.prev) / pr.prev : null;
+  };
+  const at = p => new Date(state.prices.prices[p.id]?.at || 0).getTime();
   const sorters = {
     'price-desc': (a, b) => priceOf(b) - priceOf(a),
-    'price-asc': (a, b) => priceOf(a) - priceOf(b),
-    'change-desc': (a, b) => (priceChange(b.id) ?? -1e9) - (priceChange(a.id) ?? -1e9),
-    'change-asc': (a, b) => (priceChange(a.id) ?? 1e9) - (priceChange(b.id) ?? 1e9),
+    'price-asc': (a, b) => (priceOf(a) || Infinity) - (priceOf(b) || Infinity),
+    'recent': (a, b) => at(b) - at(a),
+    'change-desc': (a, b) => (change(b) ?? -1e9) - (change(a) ?? -1e9),
+    'change-asc': (a, b) => (change(a) ?? 1e9) - (change(b) ?? 1e9),
     'ovr-desc': (a, b) => b.ovr - a.ovr,
   };
-  const list = state.players.filter(p => matchesQuery(p, q)).sort(sorters[sort]);
-  $('#market-list').innerHTML = list.map(p => marketRow(p, changeHtml(priceChange(p.id)))).join('')
+  const list = state.players.filter(p => (!onlyPriced || priceOf(p)) && matchesQuery(p, q)).sort(sorters[sort]);
+  const shown = list.slice(0, state.marketLimit);
+  $('#market-list').innerHTML = shown.map(p => playerRow(p, changeHtml(p.id) || `<small class="flat">${timeAgo(state.prices.prices[p.id]?.at)}</small>`)).join('')
+    + (list.length > shown.length ? `<button class="btn-ghost" id="market-more">Показать ещё (${list.length - shown.length})</button>` : '')
     || '<p class="hint">Никого не нашли</p>';
 
   const { updatedAt } = state.prices;
-  const nextUpdateAt = updatedAt && new Date(updatedAt).getTime() + PRICE_REFRESH_MS;
   const t = d => new Date(d).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
   $('#market-updated').textContent = updatedAt
-    ? `Обновлено в ${t(updatedAt)}${nextUpdateAt ? ` · следующее в ${t(nextUpdateAt)}` : ''}`
+    ? `${list.length} карточек · цены hutdb.app загружены в ${t(updatedAt)}, обновляются каждый час`
     : 'Цены ещё не загружены';
 }
 
 function sparkline(history) {
-  if (!history || history.length < 2) return '<p class="hint">История цен появится после нескольких обновлений.</p>';
+  if (!history || history.length < 2) return '<p class="hint">График появится, когда цена изменится.</p>';
   const w = 300, h = 60, pad = 4;
   const vals = history.map(x => x[1]);
   const min = Math.min(...vals), max = Math.max(...vals), span = max - min || 1;
@@ -269,33 +319,46 @@ function firstFreeSlotFor(p) {
   return null;
 }
 
+function boostChips(b) {
+  return ['OVR', 'SAL', 'AP'].filter(t => b[t]).map(t =>
+    `<span class="chip ${t === 'SAL' ? 'salary' : t.toLowerCase()} on">${boostText(t, b[t])}</span>`).join('');
+}
+
 function openDetails(id) {
   const p = state.byId[id];
   if (!p) return;
   const pr = state.prices.prices[id];
-  const partners = bestPartners(p, state.players);
+  const best = bestCombosFor(p, state.players, state.combos, { priceOf });
   $('#details-title').textContent = p.name;
   $('#details-content').innerHTML = `
     <div class="detail-top">
       <div class="card" style="${cardStyle(p)}">${cardHtml(p)}</div>
       <div class="kv">
-        <span>Цена</span><b>${fmtPrice(pr?.price ?? p.price)} ${changeHtml(priceChange(id))}</b>
-        <span>Позиция</span><b>${esc(p.pos)}${p.alt?.length ? ` (${esc(p.alt.join(', '))})` : ''}</b>
+        <span>Цена</span><b>${fmtPrice(pr?.price)} ${changeHtml(id)}</b>
+        ${pr?.at ? `<span>Обновлена</span><b>${timeAgo(pr.at)}${pr.by ? ` · ${esc(pr.by)}` : ''}</b>` : ''}
+        <span>Позиция</span><b>${esc(p.pos)}</b>
+        <span>Карточка</span><b>${esc(p.card)}</b>
         <span>Команда</span><b>${esc(p.team)}</b>
         <span>Страна</span><b>${flag(p.nation)} ${esc(p.nation)}</b>
-        <span>Программа</span><b>${esc(p.program)}</b>
-        <span>Зарплата</span><b>$${p.salary.toFixed(1)}M · ${p.ap} AP</b>
+        <span>Зарплата</span><b>$${p.salary.toFixed(1)}M</b>
       </div>
     </div>
-    <div class="section-title">Цена за последние часы</div>
+    ${p.abilities.length ? `<div class="chips" style="margin-bottom:8px">${p.abilities.map(([n, ap]) => `<span class="chip">${esc(n.replace(/_/g, ' '))} · ${ap} AP</span>`).join('')}</div>` : ''}
+    <div class="section-title">История цены</div>
     ${sparkline(pr?.history)}
     <div class="section-title">Лучше всего сыгрывается с</div>
-    ${partners.length ? partners.map(({ player: q, reasons }) => `
-      <div class="partner" data-id="${esc(q.id)}">
+    ${best.partners.length ? best.partners.map(({ player: q, combos }) => `
+      <div class="partner" data-id="${q.id}">
         <span class="badge" style="${cardStyle(q)}">${q.ovr}</span>
-        <span class="info"><b>${flag(q.nation)} ${esc(q.name)}</b><small class="flat">${esc(q.pos)} · ${esc(q.team)}</small></span>
-        <span class="chips">${reasons.map(r => `<span class="chip ${r.type} on">${r.label}: ${esc(r.value)}</span>`).join('')}</span>
-      </div>`).join('') : '<p class="hint">Пока не с кем — загрузите больше игроков.</p>'}
+        <span class="info"><b>${flag(q.nation)} ${esc(q.name)}</b><small class="flat">${esc(q.pos)} · ${esc(q.card)} · ${fmtPrice(priceOf(q))}</small></span>
+        <span class="chips">${combos.length} комбо</span>
+      </div>`).join('') : '<p class="hint">Этот игрок не входит ни в одну комбинацию.</p>'}
+    ${best.combos.length ? `<div class="section-title">Комбинации с игроком</div>
+      ${best.combos.map(({ combo, options }) => `
+        <div class="combo on">
+          <span class="chips">${boostChips(combo.boost)}</span>
+          <span class="reqs">${options.map(o => `<span class="req">${esc(reqLabel(o.req))}<small>${esc(o.candidates.slice(0, 2).map(c => surname(c.name)).join(', '))}${o.candidates.length > 2 ? '…' : ''}</small></span>`).join('')}</span>
+        </div>`).join('')}` : ''}
     <button class="btn-primary" id="details-add">${inLineup(id) ? 'Уже в составе' : 'Добавить в состав'}</button>`;
   $('#details-add').onclick = () => {
     if (inLineup(id)) return;
@@ -306,6 +369,7 @@ function openDetails(id) {
     toast(`${p.name} → ${key.replace('-', ' ')}`);
   };
   $('#details').hidden = false;
+  $('#details .sheet-body').scrollTop = 0;
 }
 
 function closeSheets() {
@@ -316,24 +380,24 @@ function closeSheets() {
 // ---------- Данные ----------
 async function loadPrices() {
   try {
-    // Относительные пути: работает и с server.js, и на GitHub Pages.
     state.prices = await (await fetch(`data/prices.json?t=${Date.now()}`)).json();
-  } catch {
-    // цен нет — показываем price из players.json
-  }
+  } catch {}
   renderMarket();
 }
 
 async function init() {
-  const [players, lineup] = await Promise.all([
+  const [players, combos, lineup] = await Promise.all([
     fetch('data/players.json').then(r => r.json()),
+    fetch('data/combos.json').then(r => r.json()).catch(() => []),
     loadLineup(),
   ]);
   state.players = players;
+  state.combos = combos;
   state.byId = Object.fromEntries(players.map(p => [p.id, p]));
   state.lineup = Object.fromEntries(Object.entries(lineup).filter(([, id]) => state.byId[id]));
-  renderTeam();
   await loadPrices();
+  renderTeam();
+  $('#loading').hidden = true;
   setInterval(loadPrices, PRICE_REFRESH_MS);
 }
 
@@ -343,6 +407,7 @@ document.querySelector('.tabbar').addEventListener('click', e => {
   if (!btn) return;
   document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b === btn));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${btn.dataset.view}`));
+  window.scrollTo(0, 0);
   haptic();
 });
 
@@ -372,7 +437,7 @@ $('#picker-allpos').addEventListener('change', renderPickerList);
 $('#picker-list').addEventListener('click', e => {
   const row = e.target.closest('[data-id]');
   if (!row) return;
-  assign(state.pickerSlot, row.dataset.id);
+  assign(state.pickerSlot, Number(row.dataset.id));
   closeSheets();
 });
 $('#picker-remove').addEventListener('click', () => {
@@ -382,15 +447,21 @@ $('#picker-remove').addEventListener('click', () => {
   closeSheets();
 });
 
-$('#market-search').addEventListener('input', renderMarket);
-$('#market-sort').addEventListener('change', renderMarket);
+const resetMarket = () => { state.marketLimit = PAGE_SIZE; renderMarket(); };
+$('#market-search').addEventListener('input', resetMarket);
+$('#market-sort').addEventListener('change', resetMarket);
+$('#market-priced').addEventListener('change', resetMarket);
 $('#market-list').addEventListener('click', e => {
+  if (e.target.id === 'market-more') {
+    state.marketLimit += PAGE_SIZE;
+    return renderMarket();
+  }
   const row = e.target.closest('[data-id]');
-  if (row) openDetails(row.dataset.id);
+  if (row) openDetails(Number(row.dataset.id));
 });
 $('#details-content').addEventListener('click', e => {
   const row = e.target.closest('.partner[data-id]');
-  if (row) openDetails(row.dataset.id);
+  if (row) openDetails(Number(row.dataset.id));
 });
 
 document.querySelectorAll('.sheet').forEach(sheet => sheet.addEventListener('click', e => {
@@ -404,7 +475,7 @@ $('#clear-lineup').addEventListener('click', () => {
     saveLineup();
     renderTeam();
   };
-  if (tg?.showConfirm && tg.initData) tg.showConfirm('Очистить весь состав?', doClear);
+  if (tg?.initData && tg.isVersionAtLeast?.('6.2')) tg.showConfirm('Очистить весь состав?', doClear);
   else doClear(confirm('Очистить весь состав?'));
 });
 

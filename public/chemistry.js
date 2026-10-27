@@ -1,75 +1,127 @@
-// Правила сыгранности (line combinations). Всё настраивается здесь.
+// Сыгранность (line combos) по правилам hutdb.app / NHL HUT.
 //
-// Каждый тип бонуса считается по своему общему признаку у игроков одной линии:
-//   OVR    — одинаковая страна
-//   SALARY — одинаковая команда
-//   AP     — одинаковая программа карточки (Eras, Icons, Legends Rising...)
-// Бонус зависит от того, сколько игроков линии совпадают по признаку.
+// Комбинация = набор требований (клуб / страна / тип карточки), по одному на игрока линии,
+// и бонус: +OVR, +SAL (к салари-капу, $M) или +AP. Комбинация активна, если каждое
+// требование закрыто отдельным игроком этой линии (один и тот же игрок — разными
+// карточками — не считается дважды). Бонусы всех активных комбинаций линии складываются.
+// Звенья нападения используют комбинации Forwards, пары защиты — Defense, вратари — Goalies.
 
 const CHEMISTRY = {
-  baseSalaryCap: 80,  // $M
-  baseAp: 20,
+  baseSalaryCap: 80, // $M, как в игре и на hutdb
   maxAp: 40,
   types: {
-    ovr:    { label: 'OVR',    attr: 'nation',  attrLabel: 'страна' },
-    salary: { label: 'SALARY', attr: 'team',    attrLabel: 'команда' },
-    ap:     { label: 'AP',     attr: 'program', attrLabel: 'программа' },
-  },
-  // bonuses[тип][размер линии][кол-во совпавших игроков]
-  bonuses: {
-    ovr:    { 3: { 2: 1, 3: 3 },   2: { 2: 2 } },
-    salary: { 3: { 2: 4, 3: 9 },   2: { 2: 5 } },
-    ap:     { 3: { 2: 2, 3: 5 },   2: { 2: 3 } },
+    SAL: { label: 'SALARY', color: 'green' },
+    OVR: { label: 'OVR', color: 'cyan' },
+    AP: { label: 'AP', color: 'purple' },
   },
 };
 
 const LINES = [
-  { id: 'F1', label: 'Звено 1', group: 'F', slots: ['LW', 'C', 'RW'] },
-  { id: 'F2', label: 'Звено 2', group: 'F', slots: ['LW', 'C', 'RW'] },
-  { id: 'F3', label: 'Звено 3', group: 'F', slots: ['LW', 'C', 'RW'] },
-  { id: 'F4', label: 'Звено 4', group: 'F', slots: ['LW', 'C', 'RW'] },
-  { id: 'D1', label: 'Защита 1', group: 'D', slots: ['LD', 'RD'] },
-  { id: 'D2', label: 'Защита 2', group: 'D', slots: ['LD', 'RD'] },
-  { id: 'D3', label: 'Защита 3', group: 'D', slots: ['LD', 'RD'] },
-  { id: 'G',  label: 'Вратари',  group: 'G', slots: ['STARTER', 'BACKUP'] },
+  { id: 'F1', label: 'Звено 1', cat: 'F', slots: ['LW', 'C', 'RW'] },
+  { id: 'F2', label: 'Звено 2', cat: 'F', slots: ['LW', 'C', 'RW'] },
+  { id: 'F3', label: 'Звено 3', cat: 'F', slots: ['LW', 'C', 'RW'] },
+  { id: 'F4', label: 'Звено 4', cat: 'F', slots: ['LW', 'C', 'RW'] },
+  { id: 'D1', label: 'Защита 1', cat: 'D', slots: ['LD', 'RD'] },
+  { id: 'D2', label: 'Защита 2', cat: 'D', slots: ['LD', 'RD'] },
+  { id: 'D3', label: 'Защита 3', cat: 'D', slots: ['LD', 'RD'] },
+  { id: 'G', label: 'Вратари', cat: 'G', slots: ['STARTER', 'BACKUP'] },
 ];
 
-// Наибольшая группа игроков с одинаковым значением признака.
-function largestMatch(players, attr) {
-  const counts = {};
-  let best = { value: null, count: 0 };
-  for (const p of players) {
-    const v = p[attr];
-    if (!v) continue;
-    counts[v] = (counts[v] || 0) + 1;
-    if (counts[v] > best.count) best = { value: v, count: counts[v] };
-  }
-  return best;
+function playerCat(p) {
+  if (p.pos === 'G') return 'G';
+  if (p.pos === 'LD' || p.pos === 'RD') return 'D';
+  return 'F';
 }
 
-// Бонусы одной линии: { ovr: {value, match, count}, salary: {...}, ap: {...} }
-function lineBonuses(line, players) {
-  const result = {};
-  for (const [type, cfg] of Object.entries(CHEMISTRY.types)) {
-    const match = largestMatch(players, cfg.attr);
-    const table = CHEMISTRY.bonuses[type][line.slots.length] || {};
-    result[type] = { value: table[match.count] || 0, match: match.value, count: match.count };
+// Проверка требования слота комбинации.
+function reqMatches(req, p) {
+  switch (req.type) {
+    case 'team': {
+      const t = p.team.toUpperCase();
+      return req.team.some(k => t.includes(k));
+    }
+    case 'nation': return p.nation.trim().toUpperCase() === req.nation;
+    case 'card': return p.card.trim().toUpperCase().includes(req.card);
+    case 'players': return req.ids.includes(p.id);
+    case 'any': return true;
+    default: return false;
   }
-  return result;
 }
 
-// Сводка по всему составу.
-function teamSummary(lineup, playersById) {
-  let ovrSum = 0, count = 0, salary = 0, apBonus = 0, salaryBonus = 0;
+const sameName = (a, b) => a.name.trim().toLowerCase() === b.name.trim().toLowerCase();
+
+// Распределение игроков по требованиям (перебор с возвратом). Возвращает массив игроков
+// в порядке требований или null.
+function assignCombo(combo, players) {
+  const used = new Array(players.length).fill(false);
+  const picked = [];
+  const step = i => {
+    if (i === combo.reqs.length) return true;
+    for (let j = 0; j < players.length; j++) {
+      const p = players[j];
+      if (used[j] || picked.some(q => sameName(q, p)) || !reqMatches(combo.reqs[i], p)) continue;
+      used[j] = true;
+      picked.push(p);
+      if (step(i + 1)) return true;
+      used[j] = false;
+      picked.pop();
+    }
+    return false;
+  };
+  return step(0) ? picked.slice() : null;
+}
+
+const emptyBoost = () => ({ OVR: 0, SAL: 0, AP: 0 });
+
+// Активные комбинации линии и сумма бонусов.
+function lineChemistry(line, players, combos) {
+  const total = emptyBoost();
+  const active = [];
+  if (players.length) {
+    for (const c of combos) {
+      if (c.cat !== line.cat || c.reqs.length > players.length) continue;
+      const who = assignCombo(c, players);
+      if (!who) continue;
+      active.push({ combo: c, players: who });
+      total.OVR += c.boost.OVR;
+      total.SAL += c.boost.SAL;
+      total.AP += c.boost.AP;
+    }
+  }
+  return { total, active };
+}
+
+// Комбинации, которым не хватает ровно одного игрока: что можно добрать в линию.
+function nearMisses(line, players, combos, type, limit = 3) {
+  const result = [];
+  for (const c of combos) {
+    if (c.cat !== line.cat || !c.boost[type]) continue;
+    // Пробуем убрать каждое требование: если остальные закрываются — не хватает именно его.
+    for (let i = 0; i < c.reqs.length; i++) {
+      const rest = { reqs: c.reqs.filter((_, k) => k !== i) };
+      if (rest.reqs.length > players.length) continue;
+      if (assignCombo(rest, players) && !assignCombo(c, players)) {
+        result.push({ combo: c, missing: c.reqs[i] });
+        break;
+      }
+    }
+  }
+  return result.sort((a, b) => b.combo.boost[type] - a.combo.boost[type]).slice(0, limit);
+}
+
+function teamSummary(lineup, playersById, combos) {
+  let ovrSum = 0, count = 0, salary = 0;
+  const boost = emptyBoost();
   const lines = {};
   for (const line of LINES) {
     const players = line.slots.map(s => playersById[lineup[`${line.id}-${s}`]]).filter(Boolean);
-    const b = lineBonuses(line, players);
-    lines[line.id] = b;
-    salaryBonus += b.salary.value;
-    apBonus += b.ap.value;
+    const chem = lineChemistry(line, players, combos);
+    lines[line.id] = chem;
+    boost.SAL += chem.total.SAL;
+    boost.AP += chem.total.AP;
+    boost.OVR += chem.total.OVR;
     for (const p of players) {
-      ovrSum += p.ovr + b.ovr.value;
+      ovrSum += p.ovr + chem.total.OVR;
       salary += p.salary;
       count++;
     }
@@ -79,27 +131,49 @@ function teamSummary(lineup, playersById) {
     count,
     ovr: count ? Math.round(ovrSum / count) : 0,
     salary,
-    salaryCap: CHEMISTRY.baseSalaryCap + salaryBonus,
-    salaryBonus,
-    ap: Math.min(CHEMISTRY.baseAp + apBonus, CHEMISTRY.maxAp),
-    apBonus,
+    salaryCap: CHEMISTRY.baseSalaryCap + boost.SAL,
+    boost,
   };
 }
 
-// Насколько хорошо два игрока сыгрываются: совпавшие признаки.
-function pairSynergy(a, b) {
-  const reasons = [];
-  for (const [type, cfg] of Object.entries(CHEMISTRY.types)) {
-    if (a[cfg.attr] && a[cfg.attr] === b[cfg.attr]) reasons.push({ type, label: cfg.label, value: a[cfg.attr] });
-  }
-  return reasons;
-}
+// Лучшие комбинации и партнёры для игрока.
+// partners: игроки, вместе с которыми он закрывает самые сильные комбинации.
+function bestCombosFor(player, allPlayers, combos, { limitCombos = 5, limitPartners = 8, priceOf } = {}) {
+  const cat = playerCat(player);
+  const pool = allPlayers.filter(p => p.id !== player.id && playerCat(p) === cat && !sameName(p, player));
+  const byReq = new Map();
+  const candidatesFor = req => {
+    const key = JSON.stringify(req);
+    if (!byReq.has(key)) {
+      byReq.set(key, pool.filter(p => reqMatches(req, p)).sort((a, b) => b.ovr - a.ovr));
+    }
+    return byReq.get(key);
+  };
+  const weight = b => b.OVR * 3 + b.SAL + b.AP; // OVR ценнее всего
 
-function bestPartners(player, allPlayers, limit = 6) {
-  return allPlayers
-    .filter(p => p.id !== player.id)
-    .map(p => ({ player: p, reasons: pairSynergy(player, p) }))
-    .filter(x => x.reasons.length)
-    .sort((x, y) => y.reasons.length - x.reasons.length || y.player.ovr - x.player.ovr)
-    .slice(0, limit);
+  const fits = [];
+  const partners = new Map();
+  for (const c of combos) {
+    if (c.cat !== cat) continue;
+    const slot = c.reqs.findIndex(r => reqMatches(r, player));
+    if (slot === -1) continue;
+    const others = c.reqs.filter((_, i) => i !== slot);
+    const options = others.map(r => ({ req: r, candidates: candidatesFor(r) }));
+    if (options.some(o => !o.candidates.length)) continue;
+    fits.push({ combo: c, options });
+    for (const o of options) {
+      for (const q of o.candidates.slice(0, 40)) {
+        const e = partners.get(q.id) || { player: q, score: 0, combos: [] };
+        e.score += weight(c.boost);
+        e.combos.push(c);
+        partners.set(q.id, e);
+      }
+    }
+  }
+  fits.sort((a, b) => weight(b.combo.boost) - weight(a.combo.boost));
+  const hasPrice = p => (priceOf ? priceOf(p) > 0 : true);
+  const topPartners = [...partners.values()]
+    .sort((a, b) => b.score - a.score || hasPrice(b.player) - hasPrice(a.player) || b.player.ovr - a.player.ovr)
+    .slice(0, limitPartners);
+  return { combos: fits.slice(0, limitCombos), partners: topPartners };
 }

@@ -136,3 +136,18 @@ input, select {
 .partner .info b { display: block; }
 
 .toast { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); background: #000c; color: #fff; padding: 8px 14px; border-radius: 20px; font-size: 13px; z-index: 20; }
+
+#loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--bg); color: var(--hint); z-index: 30; }
+.card .cardtype { font-size: 8px; font-weight: 700; opacity: .75; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hint.sub { margin: 8px 0 4px; }
+
+/* Комбинации */
+.combo { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-top: 1px solid rgba(255,255,255,.05); }
+.combo .combo-boost { font-weight: 800; font-size: 13px; min-width: 52px; color: var(--hint); }
+.combo > .chips { min-width: 64px; }
+.reqs { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+.req { font-size: 11px; font-weight: 700; padding: 3px 6px; border-radius: 6px; background: rgba(255,255,255,.06); display: inline-flex; flex-direction: column; }
+.req small { font-weight: 500; color: var(--hint); font-size: 10px; }
+.req.ok { background: rgba(61,220,132,.12); color: var(--green); }
+.req.need { background: rgba(255,92,92,.14); color: var(--red); border: 1px dashed rgba(255,92,92,.5); }
+.partner .chips { font-size: 11px; color: var(--hint); white-space: nowrap; }

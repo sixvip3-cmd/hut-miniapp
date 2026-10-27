@@ -1,4 +1,4 @@
-name: Deploy & update prices
+name: Deploy & sync hutdb
 
 on:
   push:
@@ -29,16 +29,18 @@ jobs:
         with:
           node-version: 22
 
-      - name: Update prices
+      # Игроки, цены и комбинации с hutdb.app. Если синк упал — деплоим прошлые данные.
+      - name: Sync hutdb.app
         if: github.event_name != 'push'
-        env:
-          PRICE_SOURCE_URL: ${{ vars.PRICE_SOURCE_URL }}
+        continue-on-error: true
         run: |
-          node scripts/update-prices.js
+          npm install --no-save --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          node scripts/sync-hutdb.js
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/prices.json
-          git commit -m "Update prices" || echo "no changes"
+          git add data/
+          git commit -m "Sync hutdb.app data" || echo "no changes"
           git push
 
       - name: Build site

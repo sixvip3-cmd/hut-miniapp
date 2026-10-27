@@ -1,22 +1,21 @@
-// HUT Mini App server: статика + API + ежечасное обновление цен.
-// Без зависимостей, нужен Node 18+.
+// HUT Mini App: локальный сервер (статика) + ежечасная синхронизация с hutdb.app.
+// На GitHub Pages сервер не нужен — там синхронизацию делает GitHub Actions.
 //
 // ENV:
 //   PORT              порт (по умолчанию 3000)
-//   PRICE_SOURCE_URL  источник цен (см. scripts/update-prices.js)
-//   PRICE_INTERVAL_MS интервал обновления (по умолчанию 1 час)
+//   SYNC_INTERVAL_MS  интервал синхронизации (по умолчанию 1 час; 0 — выключить)
 //   BOT_TOKEN         токен бота — чтобы поставить кнопку «Открыть» в меню чата
 //   WEBAPP_URL        публичный https-адрес мини-аппа
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
 
 const PORT = Number(process.env.PORT) || 3000;
-const PRICE_INTERVAL_MS = Number(process.env.PRICE_INTERVAL_MS) || 60 * 60 * 1000;
+const SYNC_INTERVAL_MS = process.env.SYNC_INTERVAL_MS != null ? Number(process.env.SYNC_INTERVAL_MS) : 60 * 60 * 1000;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const DATA_DIR = path.join(__dirname, 'data');
-const { updatePrices: runUpdate, readJson, PLAYERS_FILE, PRICES_FILE } = require('./scripts/update-prices');
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -28,32 +27,19 @@ const MIME = {
   '.webp': 'image/webp',
 };
 
-function loadPlayers() {
-  return readJson(PLAYERS_FILE, []);
+function sync() {
+  execFile(process.execPath, [path.join(__dirname, 'scripts', 'sync-hutdb.js')], (err, stdout, stderr) => {
+    process.stdout.write(stdout);
+    if (err) process.stderr.write(stderr || `${err.message}\n`);
+  });
 }
 
-function loadPrices() {
-  return readJson(PRICES_FILE, { updatedAt: null, source: null, prices: {} });
-}
-
-async function updatePrices() {
-  try {
-    await runUpdate();
-  } catch (err) {
-    console.error('[prices] ошибка обновления:', err.message);
-  }
-}
-
-function sendJson(res, data) {
-  res.writeHead(200, { 'Content-Type': MIME['.json'], 'Cache-Control': 'no-store' });
-  res.end(JSON.stringify(data));
-}
-
-function serveStatic(req, res) {
+const server = http.createServer((req, res) => {
   const urlPath = decodeURIComponent(req.url.split('?')[0]);
-  const root = urlPath.startsWith('/data/') ? __dirname : PUBLIC_DIR;
-  const file = path.join(root, urlPath === '/' ? 'index.html' : urlPath);
-  if (!file.startsWith(root === __dirname ? DATA_DIR : PUBLIC_DIR)) {
+  const isData = urlPath.startsWith('/data/');
+  const root = isData ? DATA_DIR : PUBLIC_DIR;
+  const file = path.join(root, isData ? urlPath.slice('/data/'.length) : urlPath === '/' ? 'index.html' : urlPath);
+  if (!file.startsWith(root)) {
     res.writeHead(403).end();
     return;
   }
@@ -62,18 +48,12 @@ function serveStatic(req, res) {
       res.writeHead(404).end('Not found');
       return;
     }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': MIME[path.extname(file)] || 'application/octet-stream',
+      'Cache-Control': isData ? 'no-cache' : 'public, max-age=300',
+    });
     res.end(buf);
   });
-}
-
-const server = http.createServer((req, res) => {
-  if (req.url.startsWith('/api/players')) return sendJson(res, loadPlayers());
-  if (req.url.startsWith('/api/prices')) {
-    const store = loadPrices();
-    return sendJson(res, { ...store, nextUpdateAt: new Date(nextUpdateAt).toISOString() });
-  }
-  serveStatic(req, res);
 });
 
 async function setupBotMenu() {
@@ -91,14 +71,11 @@ async function setupBotMenu() {
   }
 }
 
-let nextUpdateAt = Date.now() + PRICE_INTERVAL_MS;
-
-server.listen(PORT, async () => {
+server.listen(PORT, () => {
   console.log(`HUT Mini App: http://localhost:${PORT}`);
-  await updatePrices();
-  setInterval(() => {
-    nextUpdateAt = Date.now() + PRICE_INTERVAL_MS;
-    updatePrices();
-  }, PRICE_INTERVAL_MS);
+  if (SYNC_INTERVAL_MS > 0) {
+    sync();
+    setInterval(sync, SYNC_INTERVAL_MS);
+  }
   setupBotMenu();
 });

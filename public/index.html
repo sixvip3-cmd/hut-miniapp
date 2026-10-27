@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="loading">Загружаю базу игроков…</div>
   <main id="view-team" class="view active">
     <section class="summary">
       <div class="stat"><span class="stat-label">OVR</span><b id="sum-ovr">0</b></div>
@@ -24,9 +25,9 @@
 
     <section id="chem" hidden>
       <div class="segmented small" id="chem-type">
-        <button data-type="salary" class="active">SALARY</button>
-        <button data-type="ovr">OVR</button>
-        <button data-type="ap">AP</button>
+        <button data-type="SAL" class="active">SALARY</button>
+        <button data-type="OVR">OVR</button>
+        <button data-type="AP">AP</button>
       </div>
       <p class="hint" id="chem-hint"></p>
       <div id="chem-lines"></div>
@@ -40,12 +41,14 @@
       <input id="market-search" type="search" placeholder="Поиск игрока, команды, программы…">
       <select id="market-sort">
         <option value="price-desc">Цена ↓</option>
+        <option value="recent">Свежие</option>
         <option value="price-asc">Цена ↑</option>
         <option value="change-desc">Рост</option>
         <option value="change-asc">Падение</option>
         <option value="ovr-desc">OVR ↓</option>
       </select>
     </div>
+    <label class="check"><input type="checkbox" id="market-priced" checked> Только с ценой</label>
     <p class="hint" id="market-updated"></p>
     <div id="market-list"></div>
   </main>
