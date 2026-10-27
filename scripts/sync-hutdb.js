@@ -18,6 +18,7 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const HISTORY_LIMIT = 30; // точек истории цены на игрока (пишем только изменения)
 const MIN_PLAYERS = 3000; // защита: не перезаписываем данные, если загрузилось подозрительно мало
 const MIN_COMBOS = 100;
+const MAX_UNKNOWN = 10;
 
 // ---------- Справочники hutdb (из их combo_image_map) ----------
 const TEAM_CODES = {
@@ -37,7 +38,8 @@ const NATIONS = {
   LATVIA: 'LATVIA', Russia: 'RUSSIA', Slovakia: 'SLOVAKIA', Sweden: 'SWEDEN', Switzerland: 'SWITZERLAND', USA: 'USA',
 };
 const CARD_PREFIXES = {
-  ALUM: 'ALUMNI', BA: 'BASE', BASE: 'BASE', CAP: 'CAPTAINS', CHEL: 'CHEL WEEK', CMG: 'CHECK MY GAME',
+  ALUM: 'ALUMNI', BA: 'BASE', CREST: 'FOR THE CREST', NW: 'NEW WAVE', FN: 'FRIGHT NIGHT', CHAMP: 'HUT CHAMPIONS',
+  RANK: 'RANKED SEASONS', ERA: 'ERAS', BASE: 'BASE', CAP: 'CAPTAINS', CHEL: 'CHEL WEEK', CMG: 'CHECK MY GAME',
   FANT: 'FANTASY HOCKEY', FI: 'FRESH ICE', GB: 'HUT GAME BREAKERS', GM: 'GRUDGE MATCH', HH: 'HUT HEROES',
   HRS: 'HUT RANKED SEASONS', HUTC: 'HUT CHAMPIONS', ICON: 'ICONS', IG: 'IGNITED', LP: 'LAUNCH POINT',
   MARQ: 'MARQUEE', MILE: 'MILESTONES', ODR: 'HUT ODR SZN', PIN: 'PINNACLE', PRO: 'PROTOTYPES',
@@ -103,7 +105,11 @@ const CATS = { Forwards: 'F', Defense: 'D', Goalies: 'G' };
 async function capture() {
   const { chromium } = require('playwright');
   // PW_CHANNEL=chrome — использовать установленный Google Chrome (есть на раннерах GitHub).
-  const browser = await chromium.launch(process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {});
+  // PW_EXECUTABLE — путь к своему Chromium (если браузер Playwright не скачан).
+  const browser = await chromium.launch(
+    process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL }
+      : process.env.PW_EXECUTABLE ? { executablePath: process.env.PW_EXECUTABLE } : {},
+  );
   const page = await browser.newPage();
   const bodies = { players: [], combos: [], combo_stem_overrides: [], captain_rules: [], coaches: [] };
   const pending = [];
@@ -114,7 +120,11 @@ async function capture() {
   });
   try {
     await page.goto(SOURCE_URL, { waitUntil: 'networkidle', timeout: 120000 });
-    await page.waitForTimeout(3000);
+    // Ждём, пока придут все таблицы (страница грузит их в разном порядке), но не дольше 60 с.
+    const ready = () => ['combos', 'combo_stem_overrides', 'captain_rules', 'coaches'].every(k => bodies[k].length)
+      && bodies.players.length >= MIN_PLAYERS;
+    for (let i = 0; i < 60 && !ready(); i++) await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
     await Promise.all(pending);
   } finally {
     await browser.close();
@@ -156,8 +166,11 @@ async function main() {
     }))
     .sort((a, b) => b.ovr - a.ovr || a.id - b.id);
 
-  // Комбинации
-  const overrides = new Map(raw.combo_stem_overrides.map(o => [o.stem, o]));
+  // Комбинации. Таблицу расшифровки кодов сохраняем: если в этот раз она не пришла — берём прошлую.
+  const overridesFile = path.join(DATA_DIR, 'stem_overrides.json');
+  const overrideRows = raw.combo_stem_overrides.length ? raw.combo_stem_overrides : readJson(overridesFile, []);
+  if (raw.combo_stem_overrides.length) writeJson('stem_overrides.json', raw.combo_stem_overrides);
+  const overrides = new Map(overrideRows.map(o => [o.stem, o]));
   const seen = new Set();
   const combos = [];
   let unknown = 0;
@@ -223,6 +236,9 @@ async function main() {
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
   unknown += coaches.flatMap(c => c.combos.flatMap(x => x.reqs)).filter(r => r.type === 'unknown').length;
+
+  // Защита: если много требований не распознано — комбинации не перезаписываем.
+  if (unknown > MAX_UNKNOWN) throw new Error(`не распознано ${unknown} требований комбинаций — данные не тронуты`);
 
   writeJson('players.json', players);
   if (captains.length) writeJson('captains.json', captains);
