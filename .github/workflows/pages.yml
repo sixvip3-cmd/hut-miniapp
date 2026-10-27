@@ -33,9 +33,11 @@ jobs:
       - name: Sync hutdb.app
         if: github.event_name != 'push'
         continue-on-error: true
+        timeout-minutes: 10
+        env:
+          PW_CHANNEL: chrome # Google Chrome уже установлен на раннере
         run: |
           npm install --no-save --no-audit --no-fund
-          npx playwright install --with-deps chromium
           node scripts/sync-hutdb.js
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

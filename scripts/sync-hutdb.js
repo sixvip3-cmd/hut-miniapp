@@ -6,7 +6,7 @@
 //   data/prices.json  — цены (с нашей историей изменений)
 //   data/combos.json  — line combos (OVR / SAL / AP)
 //
-// Запуск: node scripts/sync-hutdb.js   (нужен playwright + chromium)
+// Запуск: node scripts/sync-hutdb.js   (нужен playwright + chromium или PW_CHANNEL=chrome)
 
 const fs = require('fs');
 const path = require('path');
@@ -100,7 +100,8 @@ const CATS = { Forwards: 'F', Defense: 'D', Goalies: 'G' };
 // ---------- Загрузка ----------
 async function capture() {
   const { chromium } = require('playwright');
-  const browser = await chromium.launch();
+  // PW_CHANNEL=chrome — использовать установленный Google Chrome (есть на раннерах GitHub).
+  const browser = await chromium.launch(process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {});
   const page = await browser.newPage();
   const bodies = { players: [], combos: [], combo_stem_overrides: [] };
   const pending = [];
