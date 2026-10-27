@@ -2,7 +2,7 @@ name: Deploy & sync hutdb
 
 # Приложение живёт на Cloudflare Workers и открывается только из Telegram.
 # Нужны секреты репозитория: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, BOT_TOKEN.
-# Настройки (Variables): PRICE_STARS, ADMIN_IDS, SUPPORT_CONTACT, BOT_USERNAME.
+# Настройки (Variables): PRICE_STARS, TRIAL_DAYS, REF_BONUS_DAYS, ADMIN_IDS, SUPPORT_CONTACT, BOT_USERNAME.
 
 on:
   push:
@@ -81,9 +81,11 @@ jobs:
           ADMIN_IDS: ${{ vars.ADMIN_IDS }}
           SUPPORT_CONTACT: ${{ vars.SUPPORT_CONTACT }}
           BOT_USERNAME: ${{ vars.BOT_USERNAME }}
+          TRIAL_DAYS: ${{ vars.TRIAL_DAYS }}
+          REF_BONUS_DAYS: ${{ vars.REF_BONUS_DAYS }}
         run: |
           ARGS=()
-          for v in PRICE_STARS ADMIN_IDS SUPPORT_CONTACT BOT_USERNAME; do
+          for v in PRICE_STARS ADMIN_IDS SUPPORT_CONTACT BOT_USERNAME TRIAL_DAYS REF_BONUS_DAYS; do
             [ -n "${!v}" ] && ARGS+=(--var "$v:${!v}")
           done
           npx wrangler deploy "${ARGS[@]}" | tee deploy.log

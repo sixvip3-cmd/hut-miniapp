@@ -163,6 +163,7 @@ async function main() {
       shoots: r.bio?.shoots || '',
       abilities: (r.abilities || []).map(a => [a.name, a.ap_cost ?? 1]),
       img: (r.image_url || '').replace(/^\/?cards\//, ''), // картинка: storage hutdb, папка cards/
+      added: r.created_at ? Math.floor(Date.parse(r.created_at) / 1000) : null, // когда карточка появилась на hutdb
     }))
     .sort((a, b) => b.ovr - a.ovr || a.id - b.id);
 

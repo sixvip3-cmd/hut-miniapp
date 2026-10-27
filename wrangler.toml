@@ -10,6 +10,10 @@ directory = "./_site"
 binding = "ASSETS"
 run_worker_first = true
 
+# Напоминания о подписке и ежедневный дайджест.
+[triggers]
+crons = ["*/30 * * * *"]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "hut-builder"
@@ -17,6 +21,8 @@ database_id = "00000000-0000-0000-0000-000000000000" # подставляетс�
 
 [vars]
 PRICE_STARS = "150"           # цена подписки на 30 дней в звёздах
+TRIAL_DAYS = "3"              # пробный период (0 — выключить)
+REF_BONUS_DAYS = "7"          # бонус пригласившему, когда друг оформил подписку
 PRODUCT_TITLE = "HUT Builder Premium"
 ADMIN_IDS = ""                # Telegram id через запятую: бесплатный доступ и команда /refund
 SUPPORT_CONTACT = ""          # контакт для /paysupport, например @username

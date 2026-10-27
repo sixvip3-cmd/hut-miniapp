@@ -44,6 +44,7 @@ export function loaderPage(env, price) {
     font:600 17px/1 var(--display); letter-spacing:1.5px; text-transform:uppercase; text-decoration:none; box-shadow:0 12px 30px -10px rgba(227,189,106,.8); }
   .btn:active { transform:scale(.98); }
   .btn[disabled] { opacity:.6; }
+  #trial + #pay { margin-top:10px; background:rgba(255,255,255,.06); color:var(--text); border:1px solid rgba(227,189,106,.4); box-shadow:none; }
   .note { font-size:12px; color:var(--muted); margin-top:12px; }
   .bar { width:150px; height:3px; margin:6px auto 14px; border-radius:3px; background:rgba(255,255,255,.08); overflow:hidden; }
   .bar i { display:block; width:40%; height:100%; background:var(--gold-grad); animation:slide 1.1s ease-in-out infinite; }
@@ -81,6 +82,7 @@ export function loaderPage(env, price) {
         <li>Цены обновляются каждый час</li>
       </ul>
     </div>
+    <button class="btn" id="trial" hidden></button>
     <button class="btn" id="pay">Оплатить ⭐ ${price}</button>
     <div class="note">Оплата звёздами Telegram. Подписка продлевается каждые 30 дней, отменить можно в настройках Telegram.</div>
     <div class="note err" id="pay-error" hidden></div>
@@ -126,6 +128,17 @@ export function loaderPage(env, price) {
     el.textContent = text; el.hidden = false;
   }
 
+  document.getElementById('trial').addEventListener('click', function () {
+    var btn = this; btn.disabled = true;
+    fetch('/api/trial', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData: tg.initData })
+    }).then(function (r) { return r.json(); }).then(function (res) {
+      if (res.ok) return enter(res);
+      btn.hidden = true;
+      fail('Пробный период уже использован.');
+    }).catch(function () { btn.disabled = false; fail('Нет связи с сервером. Попробуйте ещё раз.'); });
+  });
+
   document.getElementById('pay').addEventListener('click', function () {
     if (!invoice) return;
     document.getElementById('pay-error').hidden = true;
@@ -139,6 +152,11 @@ export function loaderPage(env, price) {
     if (res.ok) return enter(res);
     if (res.error === 'not_telegram') return show('s-outside');
     invoice = res.invoice;
+    if (res.trial) {
+      var t = document.getElementById('trial');
+      t.textContent = '🎁 ' + res.trialDays + ' дня бесплатно';
+      t.hidden = false;
+    }
     show('s-pay');
   }).catch(function () {
     document.getElementById('loading-text').textContent = 'Нет связи с сервером. Попробуйте позже.';

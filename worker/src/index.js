@@ -1,67 +1,32 @@
 // HUT Builder — Cloudflare Worker.
 //
-// Приложение открывается только внутри Telegram и только с активной подпиской за звёзды:
-//   GET  /                 — загрузчик: проверяет, что открыт в Telegram, и показывает оплату
-//   POST /api/session      — проверяет подпись Telegram (initData) и подписку;
-//                            есть подписка → ссылка /s/<токен>/, нет → счёт в звёздах
-//   GET  /s/<токен>/...    — само приложение и данные (только по действующему токену)
-//   POST /telegram/webhook — апдейты бота: оплата, /start, /paysupport, /status, /refund
-//   POST /admin/setup      — настройка вебхука, кнопки меню и команд бота (ключ из токена бота)
+// Приложение открывается только внутри Telegram и только с доступом (подписка за звёзды,
+// пробный период или бонусные дни):
+//   GET  /                     — загрузчик: «только в Telegram», экран оплаты и пробного периода
+//   POST /api/session          — проверка подписи Telegram (initData) и доступа;
+//                                есть доступ → ссылка /s/<токен>/, нет → счёт в звёздах
+//   POST /api/trial            — включить пробный период (один раз на аккаунт)
+//   GET  /s/<токен>/...        — приложение и данные (только по действующему токену)
+//   GET  /s/<токен>/api/me     — подписка и реферальная ссылка для приложения
+//   POST /s/<токен>/api/share  — картинка состава → готовое сообщение для пересылки
+//   POST /telegram/webhook     — апдейты бота (worker/src/bot.js)
+//   POST /admin/setup          — вебхук, кнопка меню, команды (ключ из токена бота)
+//   cron каждые 30 минут       — напоминания и дайджест (worker/src/cron.js)
 
 import { bot, derivedSecret, signSession, validateInitData, verifySession } from './telegram.js';
 import { loaderPage } from './loader.js';
+import { BOT_COMMANDS, botUsername, handleUpdate, refLink } from './bot.js';
+import { runScheduled, saveOrigin } from './cron.js';
+import {
+  hasAccess, now, price, referralStats, refBonusDays, SUB_PERIOD, startTrial, touchUser, trialAvailable, trialDays,
+} from './db.js';
 
-const DAY = 24 * 3600;
-const SUB_PERIOD = 30 * DAY; // Telegram допускает подписки только на 30 дней
 const SESSION_TTL = 12 * 3600;
+const MAX_SHARE_BYTES = 8 * 1024 * 1024;
 
-const now = () => Math.floor(Date.now() / 1000);
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
 
-const price = env => Math.max(1, Number(env.PRICE_STARS) || 150);
-const admins = env => String(env.ADMIN_IDS || '').split(/[\s,]+/).filter(Boolean).map(Number);
-const isAdmin = (env, id) => admins(env).includes(Number(id));
-
-// ---------- База (D1) ----------
-async function getSubscription(env, userId) {
-  return env.DB.prepare('SELECT user_id, until, charge_id FROM subscriptions WHERE user_id = ?').bind(userId).first();
-}
-
-async function hasAccess(env, userId) {
-  if (isAdmin(env, userId)) return { until: now() + 365 * DAY, admin: true };
-  const sub = await getSubscription(env, userId);
-  return sub && sub.until > now() ? sub : null;
-}
-
-// Записывает платёж один раз (повторная доставка апдейта ничего не задвоит) и продлевает доступ.
-async function recordPayment(env, userId, sp) {
-  const inserted = await env.DB.prepare(
-    `INSERT OR IGNORE INTO payments (charge_id, user_id, amount, payload, is_recurring, expires_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(sp.telegram_payment_charge_id, userId, sp.total_amount, sp.invoice_payload, sp.is_recurring ? 1 : 0,
-    sp.subscription_expiration_date || null, now()).run();
-  if (!inserted.meta.changes) return null;
-
-  const current = await getSubscription(env, userId);
-  const base = Math.max(now(), current?.until || 0);
-  const until = sp.subscription_expiration_date || base + SUB_PERIOD;
-  await env.DB.prepare(
-    `INSERT INTO subscriptions (user_id, until, charge_id, updated_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT(user_id) DO UPDATE SET until = excluded.until, charge_id = excluded.charge_id, updated_at = excluded.updated_at`,
-  ).bind(userId, until, sp.telegram_payment_charge_id, now()).run();
-  return until;
-}
-
-async function revokeByCharge(env, chargeId) {
-  const p = await env.DB.prepare('SELECT user_id FROM payments WHERE charge_id = ?').bind(chargeId).first();
-  if (!p) return null;
-  await env.DB.prepare('UPDATE payments SET refunded = 1 WHERE charge_id = ?').bind(chargeId).run();
-  await env.DB.prepare('UPDATE subscriptions SET until = ?, updated_at = ? WHERE user_id = ?').bind(now(), now(), p.user_id).run();
-  return p.user_id;
-}
-
-// ---------- Счёт ----------
 function invoiceParams(env, userId) {
   return {
     title: env.PRODUCT_TITLE || 'HUT Builder Premium',
@@ -73,28 +38,47 @@ function invoiceParams(env, userId) {
   };
 }
 
-// ---------- /api/session ----------
+async function sessionResponse(env, userId, access) {
+  const exp = Math.min(now() + SESSION_TTL, access.until);
+  const token = await signSession(env, { uid: userId, exp });
+  return json({ ok: true, url: `/s/${token}/`, until: access.until, trial: !!access.trial });
+}
+
+// ---------- Загрузчик ----------
 async function handleSession(request, env) {
   const { initData } = await request.json().catch(() => ({}));
   const user = await validateInitData(initData, env);
   if (!user) return json({ error: 'not_telegram' }, 401);
+  await touchUser(env, user);
 
   const access = await hasAccess(env, user.id);
-  if (access) {
-    const exp = Math.min(now() + SESSION_TTL, access.until);
-    const token = await signSession(env, { uid: user.id, exp });
-    return json({ ok: true, url: `/s/${token}/`, until: access.until });
-  }
-  const invoice = await bot(env, 'createInvoiceLink', invoiceParams(env, user.id));
-  return json({ ok: false, invoice, price: price(env) });
+  if (access) return sessionResponse(env, user.id, access);
+  const [invoice, trial] = await Promise.all([
+    bot(env, 'createInvoiceLink', invoiceParams(env, user.id)),
+    trialAvailable(env, user.id),
+  ]);
+  return json({ ok: false, invoice, price: price(env), trial, trialDays: trialDays(env) });
+}
+
+async function handleTrial(request, env) {
+  const { initData } = await request.json().catch(() => ({}));
+  const user = await validateInitData(initData, env);
+  if (!user) return json({ error: 'not_telegram' }, 401);
+  const until = await startTrial(env, user.id);
+  if (!until) return json({ error: 'trial_used' }, 409);
+  return sessionResponse(env, user.id, { until, trial: true });
 }
 
 // ---------- Приложение по токену ----------
 async function handleApp(request, env, url) {
   const m = url.pathname.match(/^\/s\/([^/]+)(\/.*)?$/);
   const session = m && (await verifySession(env, m[1]));
-  if (!session) return Response.redirect(`${url.origin}/`, 302);
+  if (!session) {
+    return m?.[2]?.startsWith('/api/') ? json({ error: 'session_expired' }, 401) : Response.redirect(`${url.origin}/`, 302);
+  }
   if (!m[2]) return Response.redirect(`${url.origin}/s/${m[1]}/${url.search}`, 302);
+  if (m[2] === '/api/me') return handleMe(env, session.uid);
+  if (m[2] === '/api/share' && request.method === 'POST') return handleShare(request, env, session.uid, url.origin);
 
   const assetUrl = new URL(m[2], url.origin); // '/' → index.html (так раздаёт ASSETS)
   assetUrl.search = url.search;
@@ -112,105 +96,71 @@ async function handleApp(request, env, url) {
   return new Response(res.body, { status: res.status, headers });
 }
 
-// ---------- Бот ----------
-async function handleUpdate(update, env, origin) {
-  if (update.pre_checkout_query) {
-    const q = update.pre_checkout_query;
-    const ok = q.currency === 'XTR' && q.total_amount === price(env) && q.invoice_payload === `sub:${q.from.id}`;
-    await bot(env, 'answerPreCheckoutQuery', ok
-      ? { pre_checkout_query_id: q.id, ok: true }
-      : { pre_checkout_query_id: q.id, ok: false, error_message: 'Счёт устарел. Откройте приложение заново и оплатите ещё раз.' });
-    return;
-  }
-
-  const msg = update.message;
-  if (!msg?.from) return;
-  const chatId = msg.chat.id;
-  const appButton = text => ({ inline_keyboard: [[{ text, web_app: { url: `${origin}/` } }]] });
-
-  if (msg.successful_payment) {
-    const until = await recordPayment(env, msg.from.id, msg.successful_payment);
-    if (until) {
-      const date = new Date(until * 1000).toLocaleDateString('ru-RU');
-      await bot(env, 'sendMessage', {
-        chat_id: chatId,
-        text: `✅ Оплата получена. Доступ открыт до ${date}.\nПодписка продлевается автоматически, отменить можно в настройках Telegram.`,
-        reply_markup: appButton('Открыть HUT Builder'),
-      });
-    }
-    return;
-  }
-
-  if (msg.refunded_payment) {
-    await revokeByCharge(env, msg.refunded_payment.telegram_payment_charge_id);
-    return;
-  }
-
-  const [cmd, ...args] = String(msg.text || '').trim().split(/\s+/);
-  switch (cmd.replace(/@.*$/, '')) {
-    case '/start':
-      await bot(env, 'sendMessage', {
-        chat_id: chatId,
-        text: `🏒 HUT Builder — сборка состава, сыгранность, капитаны, тренеры и цены маркета.\n\nПодписка: ⭐ ${price(env)} на 30 дней.`,
-        reply_markup: appButton('Открыть'),
-      });
-      break;
-    case '/status': {
-      const access = await hasAccess(env, msg.from.id);
-      await bot(env, 'sendMessage', {
-        chat_id: chatId,
-        text: access
-          ? `✅ Доступ активен до ${new Date(access.until * 1000).toLocaleDateString('ru-RU')}.`
-          : `Подписки нет. Откройте приложение, чтобы оформить её за ⭐ ${price(env)}.`,
-      });
-      break;
-    }
-    case '/paysupport':
-      await bot(env, 'sendMessage', {
-        chat_id: chatId,
-        text: `Вопросы по оплате: ${env.SUPPORT_CONTACT || 'напишите сюда, мы ответим'}.\nУкажите дату платежа — проверим и при необходимости вернём звёзды.`,
-      });
-      break;
-    case '/refund': {
-      // Только для администраторов: /refund <user_id> — вернуть последний платёж.
-      if (!isAdmin(env, msg.from.id)) break;
-      const userId = Number(args[0]);
-      const p = userId && (await env.DB.prepare(
-        'SELECT charge_id FROM payments WHERE user_id = ? AND refunded = 0 ORDER BY created_at DESC LIMIT 1',
-      ).bind(userId).first());
-      let text = 'Платёж не найден. Формат: /refund <user_id>';
-      if (p) {
-        try {
-          await bot(env, 'refundStarPayment', { user_id: userId, telegram_payment_charge_id: p.charge_id });
-          await revokeByCharge(env, p.charge_id);
-          text = `Звёзды возвращены пользователю ${userId}, доступ закрыт.`;
-        } catch (err) {
-          text = `Не удалось вернуть: ${err.message}`;
-        }
-      }
-      await bot(env, 'sendMessage', { chat_id: chatId, text });
-      break;
-    }
-  }
+async function handleMe(env, uid) {
+  const [access, refs, link] = await Promise.all([hasAccess(env, uid), referralStats(env, uid), refLink(env, uid)]);
+  return json({
+    until: access?.until || 0,
+    trial: !!access?.trial,
+    admin: !!access?.admin,
+    price: price(env),
+    refLink: link,
+    refBonusDays: refBonusDays(env),
+    invited: refs?.invited || 0,
+    paidInvites: refs?.paid || 0,
+  });
 }
 
+// Картинка состава: отправляем её пользователю в чат с ботом (копия остаётся у него)
+// и готовим сообщение, которое приложение откроет в окне «Поделиться» (Bot API 8.0+).
+async function handleShare(request, env, uid, origin) {
+  const form = await request.formData().catch(() => null);
+  const photo = form?.get('photo');
+  if (!photo || typeof photo === 'string' || photo.size > MAX_SHARE_BYTES) return json({ error: 'bad_image' }, 400);
+  const summary = String(form.get('summary') || '').slice(0, 300);
+  const username = await botUsername(env);
+  const caption = `${summary}\n\nСобери свой состав в @${username}`.trim();
+  const markup = { inline_keyboard: [[{ text: '🏒 Собрать свой состав', url: `https://t.me/${username}?start=share` }]] };
+
+  const tgForm = new FormData();
+  tgForm.append('chat_id', String(uid));
+  tgForm.append('photo', photo, 'lineup.png');
+  tgForm.append('caption', caption);
+  tgForm.append('reply_markup', JSON.stringify(markup));
+  const base = env.TELEGRAM_API_BASE || 'https://api.telegram.org';
+  const sent = await (await fetch(`${base}/bot${env.BOT_TOKEN}/sendPhoto`, { method: 'POST', body: tgForm })).json();
+  if (!sent.ok) return json({ error: 'send_failed', message: sent.description }, 502);
+
+  const fileId = sent.result.photo.at(-1).file_id;
+  let preparedId = null;
+  try {
+    const prepared = await bot(env, 'savePreparedInlineMessage', {
+      user_id: uid,
+      result: { type: 'photo', id: `lineup-${uid}-${now()}`, photo_file_id: fileId, caption, reply_markup: markup },
+      allow_user_chats: true, allow_bot_chats: true, allow_group_chats: true, allow_channel_chats: true,
+    });
+    preparedId = prepared.id;
+  } catch (err) {
+    console.error('savePreparedInlineMessage', err.message);
+  }
+  return json({ ok: true, preparedId, origin });
+}
+
+// ---------- Настройка бота ----------
 async function handleSetup(env, origin) {
+  await saveOrigin(env, origin);
   await bot(env, 'setWebhook', {
     url: `${origin}/telegram/webhook`,
     secret_token: await derivedSecret(env, 'webhook'),
-    allowed_updates: ['message', 'pre_checkout_query'],
+    allowed_updates: ['message', 'pre_checkout_query', 'inline_query', 'callback_query'],
     drop_pending_updates: false,
   });
   await bot(env, 'setChatMenuButton', { menu_button: { type: 'web_app', text: 'HUT Builder', web_app: { url: `${origin}/` } } });
-  await bot(env, 'setMyCommands', {
-    commands: [
-      { command: 'start', description: 'Открыть HUT Builder' },
-      { command: 'status', description: 'Статус подписки' },
-      { command: 'paysupport', description: 'Помощь с оплатой' },
-    ],
-  });
+  await bot(env, 'setMyCommands', { commands: BOT_COMMANDS });
+  await bot(env, 'setMyShortDescription', {
+    short_description: 'Конструктор состава NHL HUT: line combos, капитаны, тренеры и цены маркета. Подписка за ⭐',
+  }).catch(() => {});
   const me = await bot(env, 'getMe');
-  return json({ ok: true, bot: me.username, app: `${origin}/` });
+  return json({ ok: true, bot: me.username, inline: !!me.supports_inline_queries, app: `${origin}/` });
 }
 
 export default {
@@ -224,6 +174,7 @@ export default {
         });
       }
       if (pathname === '/api/session' && request.method === 'POST') return handleSession(request, env);
+      if (pathname === '/api/trial' && request.method === 'POST') return handleTrial(request, env);
       if (pathname.startsWith('/s/')) return handleApp(request, env, url);
 
       if (pathname === '/telegram/webhook' && request.method === 'POST') {
@@ -241,5 +192,9 @@ export default {
       console.error(err);
       return json({ error: 'server_error', message: err.message }, 500);
     }
+  },
+
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runScheduled(env));
   },
 };

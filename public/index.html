@@ -34,7 +34,7 @@
     <header class="brand">
       <div class="brand-mark">H</div>
       <div class="brand-name">HUT <span>Builder</span></div>
-      <div class="brand-tag">NHL 27</div>
+      <div class="brand-tag" id="sub-tag">NHL 27</div>
     </header>
 
     <section class="hero">
@@ -74,6 +74,17 @@
       <p class="hint" id="chem-hint"></p>
       <div id="chem-lines"></div>
     </section>
+
+    <div class="actions">
+      <button class="action" id="share-lineup">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="m16 6-4-4-4 4"/><path d="M12 2v13"/></svg>
+        <span>Поделиться составом</span>
+      </button>
+      <button class="action" id="invite">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-4 3-7 7-7s7 3 7 7"/><path d="M19 8v6M16 11h6"/></svg>
+        <span>Пригласить друга<small id="invite-bonus"></small></span>
+      </button>
+    </div>
 
     <button class="btn-ghost" id="clear-lineup">Очистить состав</button>
   </main>

@@ -403,6 +403,7 @@ function renderTeam() {
     if (sum.count) sum.ovr = Math.round(sum.ovr + extraOvr / sum.count);
   }
   state.coachState = co;
+  state.lastSum = sum;
   renderSummary(sum);
   renderStaff(cap, co);
   renderLineup(sum, cap);
@@ -674,6 +675,7 @@ async function init() {
   renderTeam();
   $('#loading').hidden = true;
   setInterval(loadPrices, PRICE_REFRESH_MS);
+  loadMe();
 }
 
 // ---------- События ----------
@@ -782,5 +784,157 @@ $('#clear-lineup').addEventListener('click', () => {
   if (tg?.initData && tg.isVersionAtLeast?.('6.2')) tg.showConfirm('Очистить весь состав?', doClear);
   else doClear(confirm('Очистить весь состав?'));
 });
+
+// ---------- Подписка и приглашения ----------
+async function loadMe() {
+  try {
+    const res = await fetch('api/me', { cache: 'no-store' });
+    if (!res.ok) return;
+    state.me = await res.json();
+  } catch {
+    return; // локальный запуск без сервера
+  }
+  const me = state.me;
+  const tag = $('#sub-tag');
+  if (me.admin) tag.textContent = 'ADMIN';
+  else if (me.until) {
+    const d = new Date(me.until * 1000).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+    tag.textContent = me.trial ? `ТРИАЛ ДО ${d}` : `ДО ${d}`;
+    tag.classList.toggle('trial', me.trial);
+  }
+  $('#invite-bonus').textContent = me.refBonusDays ? `+${me.refBonusDays} дней за друга` : '';
+}
+
+function invite() {
+  const me = state.me;
+  if (!me?.refLink) return toast('Ссылка появится в версии из Telegram');
+  const text = '🏒 HUT Builder — собирай состав NHL HUT с настоящими line combos прямо в Telegram';
+  const url = `https://t.me/share/url?url=${encodeURIComponent(me.refLink)}&text=${encodeURIComponent(text)}`;
+  try { tg.openTelegramLink(url); } catch { window.open(url, '_blank'); }
+}
+
+// ---------- Картинка состава ----------
+const loadImage = src => new Promise(resolve => {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => resolve(img);
+  img.onerror = () => resolve(null);
+  img.src = src;
+});
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+async function renderLineupImage() {
+  const W = 1080, PAD = 50, GAP = 14, CW = 180, CH = Math.round(CW * 1128 / 804), LABEL = 40, ROW = LABEL + CH + 26;
+  const HEADER = 250, H = HEADER + ROW * 4 + 90;
+  const canvas = document.createElement('canvas');
+  canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  await Promise.all([document.fonts.load('600 40px Oswald'), document.fonts.load('600 20px Inter')]).catch(() => {});
+
+  // фон
+  ctx.fillStyle = '#06080c'; ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W / 2, -80, 40, W / 2, -80, 900);
+  glow.addColorStop(0, 'rgba(227,189,106,.28)'); glow.addColorStop(1, 'rgba(227,189,106,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+  const gold = ctx.createLinearGradient(0, 0, W, 0);
+  gold.addColorStop(0, '#f6dc9a'); gold.addColorStop(.5, '#e3bd6a'); gold.addColorStop(1, '#b8892b');
+
+  // шапка
+  const sum = state.lastSum || { ovr: 0, salary: 0, salaryCap: CHEMISTRY.baseSalaryCap, boost: { AP: 0 } };
+  ctx.fillStyle = '#f4f1ea'; ctx.font = '600 44px Oswald'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText('HUT', PAD, 92);
+  ctx.fillStyle = gold; ctx.fillText('BUILDER', PAD + ctx.measureText('HUT ').width, 92);
+  ctx.fillStyle = '#8d93a1'; ctx.font = '500 22px Inter';
+  const capName = state.byId[state.captain]?.name, coachName = coachById(state.coach)?.name;
+  ctx.fillText([capName && `Капитан: ${capName}`, coachName && `Тренер: ${coachName}`].filter(Boolean).join('   ·   ') || 'Мой состав NHL HUT', PAD, 130);
+  const stats = [['OVR', String(sum.ovr || '—')], ['ЗАРПЛАТА', `$${sum.salary.toFixed(1)}M / $${sum.salaryCap}M`], ['AP', `${sum.boost.AP} / ${CHEMISTRY.maxAp}`]];
+  let sx = PAD;
+  for (const [label, value] of stats) {
+    ctx.fillStyle = '#8d93a1'; ctx.font = '600 20px Oswald'; ctx.fillText(label, sx, 182);
+    ctx.fillStyle = label === 'OVR' ? gold : '#f4f1ea'; ctx.font = '600 44px Oswald'; ctx.fillText(value, sx, 228);
+    sx += Math.max(ctx.measureText(value).width, 120) + 60;
+  }
+
+  // карточки
+  const images = new Map();
+  await Promise.all(Object.values(state.lineup).map(async id => {
+    const p = state.byId[id];
+    const src = p?.img && `${THUMB_BASE}cards/${p.img}${p.img.includes('?') ? '&' : '?'}resize=contain&width=400&quality=85`;
+    if (src) images.set(id, await loadImage(src));
+  }));
+
+  const drawLine = (line, x, y) => {
+    const t = state.lastSum?.lines[line.id]?.total || { OVR: 0, SAL: 0, AP: 0 };
+    ctx.fillStyle = gold; ctx.fillRect(x, y + 8, 5, 24);
+    ctx.fillStyle = '#f4f1ea'; ctx.font = '600 26px Oswald'; ctx.fillText(line.label.toUpperCase(), x + 16, y + 30);
+    const bonus = [t.OVR && `+${t.OVR} OVR`, t.SAL && `+$${t.SAL}M`, t.AP && `+${t.AP} AP`].filter(Boolean).join('  ');
+    if (bonus) {
+      ctx.fillStyle = '#4ade80'; ctx.font = '600 22px Oswald';
+      ctx.fillText(bonus, x + 16 + ctx.measureText(line.label.toUpperCase()).width + 70, y + 30);
+    }
+    line.slots.forEach((slot, i) => {
+      const cx = x + i * (CW + GAP), cy = y + LABEL;
+      const p = state.byId[state.lineup[`${line.id}-${slot}`]];
+      const img = p && images.get(p.id);
+      roundRect(ctx, cx, cy, CW, CH, 12);
+      if (img) {
+        ctx.save(); ctx.clip(); ctx.drawImage(img, cx, cy, CW, CH); ctx.restore();
+      } else {
+        ctx.fillStyle = 'rgba(255,255,255,.04)'; ctx.fill();
+        ctx.setLineDash([8, 6]); ctx.strokeStyle = 'rgba(227,189,106,.35)'; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = p ? '#f4f1ea' : '#5d6370'; ctx.font = '600 22px Oswald'; ctx.textAlign = 'center';
+        ctx.fillText(p ? `${p.ovr} ${surname(p.name)}` : slot, cx + CW / 2, cy + CH / 2);
+        ctx.textAlign = 'left';
+      }
+    });
+  };
+  const leftX = PAD, rightX = W - PAD - (CW * 2 + GAP);
+  LINES.filter(l => l.cat === 'F').forEach((l, i) => drawLine(l, leftX, HEADER + i * ROW));
+  LINES.filter(l => l.cat !== 'F').forEach((l, i) => drawLine(l, rightX, HEADER + i * ROW));
+
+  ctx.fillStyle = '#5d6370'; ctx.font = '500 22px Inter';
+  const username = state.me?.refLink?.match(/t\.me\/([^?]+)/)?.[1];
+  ctx.fillText(username ? `Собери свой состав — @${username}` : 'HUT Builder — Telegram Mini App', PAD, H - 40);
+
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+}
+
+async function shareLineup() {
+  const btn = $('#share-lineup');
+  if (!Object.keys(state.lineup).length) return toast('Сначала добавьте игроков в состав');
+  btn.disabled = true;
+  toast('Готовлю картинку…');
+  try {
+    const blob = await renderLineupImage();
+    const sum = state.lastSum;
+    const form = new FormData();
+    form.append('photo', blob, 'lineup.png');
+    form.append('summary', `🏒 Мой состав в HUT Builder: ${sum.ovr} OVR · зарплата $${sum.salary.toFixed(1)}M · ${sum.boost.AP} AP`);
+    const res = await (await fetch('api/share', { method: 'POST', body: form })).json();
+    if (!res.ok) throw new Error(res.error);
+    haptic('medium');
+    if (res.preparedId && tg?.isVersionAtLeast?.('8.0')) {
+      tg.shareMessage(res.preparedId, ok => ok && toast('Отправлено!'));
+    } else {
+      toast('Картинка в чате с ботом — перешлите её друзьям');
+    }
+  } catch {
+    toast('Не получилось поделиться, попробуйте ещё раз');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+$('#share-lineup').addEventListener('click', shareLineup);
+$('#invite').addEventListener('click', invite);
 
 init();
