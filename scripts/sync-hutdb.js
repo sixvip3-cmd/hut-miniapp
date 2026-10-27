@@ -1,17 +1,18 @@
-// Синхронизация с hutdb.app: игроки, цены маркета, комбинации сыгранности.
+// Синхронизация с hutdb.app: игроки, цены маркета, комбинации сыгранности, капитаны.
 //
-// Открывает страницу /chemistry в headless-браузере (как обычный посетитель),
+// Открывает страницу /squad-builder в headless-браузере (как обычный посетитель),
 // сохраняет данные, которые страница сама загружает, и пишет:
-//   data/players.json — все карточки
-//   data/prices.json  — цены (с нашей историей изменений)
-//   data/combos.json  — line combos (OVR / SAL / AP)
+//   data/players.json  — все карточки
+//   data/prices.json   — цены (с нашей историей изменений)
+//   data/combos.json   — line combos (OVR / SAL / AP)
+//   data/captains.json — правила капитанов
 //
 // Запуск: node scripts/sync-hutdb.js   (нужен playwright + chromium или PW_CHANNEL=chrome)
 
 const fs = require('fs');
 const path = require('path');
 
-const SOURCE_URL = 'https://www.hutdb.app/chemistry';
+const SOURCE_URL = 'https://www.hutdb.app/squad-builder';
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const HISTORY_LIMIT = 30; // точек истории цены на игрока (пишем только изменения)
 const MIN_PLAYERS = 3000; // защита: не перезаписываем данные, если загрузилось подозрительно мало
@@ -103,10 +104,10 @@ async function capture() {
   // PW_CHANNEL=chrome — использовать установленный Google Chrome (есть на раннерах GitHub).
   const browser = await chromium.launch(process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {});
   const page = await browser.newPage();
-  const bodies = { players: [], combos: [], combo_stem_overrides: [] };
+  const bodies = { players: [], combos: [], combo_stem_overrides: [], captain_rules: [] };
   const pending = [];
   page.on('response', res => {
-    const m = res.url().match(/\/rest\/v1\/(players|combos|combo_stem_overrides)\?/);
+    const m = res.url().match(/\/rest\/v1\/(players|combos|combo_stem_overrides|captain_rules)\?/);
     if (!m || res.status() !== 200) return;
     pending.push(res.json().then(rows => { if (Array.isArray(rows)) bodies[m[1]].push(...rows); }).catch(() => {}));
   });
@@ -150,6 +151,7 @@ async function main() {
       salary: parseFloat(String(r.bio?.salary || '0').replace(/[^\d.]/g, '')) || 0,
       shoots: r.bio?.shoots || '',
       abilities: (r.abilities || []).map(a => [a.name, a.ap_cost ?? 1]),
+      img: (r.image_url || '').replace(/^\/?cards\//, ''), // картинка: storage hutdb, папка cards/
     }))
     .sort((a, b) => b.ovr - a.ovr || a.id - b.id);
 
@@ -186,11 +188,27 @@ async function main() {
     prices[r.id] = entry;
   }
 
+  // Капитаны: клубы/страны, сколько игроков нужно и бонус.
+  const upper = s => String(s ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+  const captains = raw.captain_rules
+    .filter(r => r.active !== false && (r.teams?.length || r.nations?.length))
+    .map(r => ({
+      name: upper(r.name),
+      playerId: r.player_id ?? null,
+      teams: (r.teams || []).map(upper),
+      nations: (r.nations || []).map(upper),
+      needed: Number(r.players_needed) || 5,
+      ap: Number(r.ap_boost) || 0,
+      sal: Number(r.sal_boost) || 0,
+      cardTypes: (r.card_types?.length ? r.card_types : ['CAPTAINS']).map(upper),
+    }));
+
   writeJson('players.json', players);
+  if (captains.length) writeJson('captains.json', captains);
   writeJson('combos.json', combos);
   writeJson('prices.json', { updatedAt: new Date(now).toISOString(), source: 'hutdb.app', prices });
 
-  console.log(`[hutdb] игроков: ${players.length}, цен: ${Object.keys(prices).length}, комбинаций: ${combos.length}, нераспознанных требований: ${unknown}`);
+  console.log(`[hutdb] игроков: ${players.length}, цен: ${Object.keys(prices).length}, комбинаций: ${combos.length}, капитанов: ${captains.length}, нераспознанных требований: ${unknown}`);
 }
 
 main().catch(err => {

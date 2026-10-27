@@ -5,6 +5,8 @@ tg?.expand();
 const STORAGE_KEY = 'hut-lineup-v2';
 const PRICE_REFRESH_MS = 60 * 60 * 1000;
 const PAGE_SIZE = 60;
+// Картинки карточек отдаёт хранилище hutdb.app (те же ссылки, что и на их сайте).
+const IMG_BASE = 'https://cfahmyecewzymggdoebn.supabase.co/storage/v1/render/image/public/assets/cards/';
 
 const FLAGS = {
   CANADA: '🇨🇦', USA: '🇺🇸', SWEDEN: '🇸🇪', FINLAND: '🇫🇮', RUSSIA: '🇷🇺', CZECHIA: '🇨🇿', SLOVAKIA: '🇸🇰',
@@ -36,6 +38,9 @@ const state = {
   combos: [],
   prices: { prices: {}, updatedAt: null },
   lineup: {},
+  captain: null,
+  captains: [],
+  captainCards: [],
   chemType: 'SAL',
   pickerSlot: null,
   marketLimit: PAGE_SIZE,
@@ -50,6 +55,9 @@ const haptic = type => {
 };
 const priceOf = p => state.prices.prices[p.id]?.price || 0;
 const surname = name => name.split(' ').slice(1).join(' ') || name;
+const titleCase = s => s.toLowerCase().replace(/(^|[\s.-])\p{L}/gu, m => m.toUpperCase());
+const imgUrl = p =>
+  p?.img ? `${IMG_BASE}${p.img}${p.img.includes('?') ? '&' : '?'}resize=contain&width=200&quality=72` : null;
 
 function timeAgo(iso) {
   if (!iso) return '';
@@ -73,7 +81,7 @@ function toast(text) {
 const hasCloud = () => !!(tg?.initData && tg.isVersionAtLeast?.('6.9') && tg.CloudStorage);
 
 function saveLineup() {
-  const data = JSON.stringify(state.lineup);
+  const data = JSON.stringify({ slots: state.lineup, captain: state.captain });
   try { localStorage.setItem(STORAGE_KEY, data); } catch {}
   if (hasCloud()) {
     try { tg.CloudStorage.setItem(STORAGE_KEY, data, () => {}); } catch {}
@@ -113,11 +121,18 @@ function cardStyle(p) {
   return `--c1:${c1};--c2:${c2}`;
 }
 
-function cardHtml(p, slot) {
+// Картинка карточки поверх запасного варианта (если картинка не загрузится — останется плашка).
+function cardImg(p) {
+  const url = imgUrl(p);
+  return url ? `<img class="card-img" src="${url}" alt="" loading="lazy" decoding="async" onload="this.classList.add('ok')" onerror="this.remove()">` : '';
+}
+
+function cardHtml(p, slot, badges = '') {
   if (!p) return `<div class="plus">+</div><div class="slot">${esc(slot)}</div>`;
   const off = slot && !slotAccepts(slot, p) ? '<span class="offpos">не своя</span>' : '';
   return `
-    ${off}
+    ${cardImg(p)}
+    ${off}${badges}
     <div class="top">
       <div><div class="ovr">${p.ovr}</div><div class="pos">${esc(p.pos)}</div></div>
       <div class="flag">${flag(p.nation)}</div>
@@ -148,7 +163,7 @@ function bonusChips(t) {
     <span class="chip ap ${t.AP ? 'on' : ''}">+${t.AP} AP</span>`;
 }
 
-function renderLineup(sum) {
+function renderLineup(sum, cap) {
   $('#lineup').innerHTML = LINES.map(line => `
     <div class="line">
       <div class="line-head">
@@ -159,7 +174,10 @@ function renderLineup(sum) {
         ${line.slots.map(slot => {
           const key = `${line.id}-${slot}`;
           const p = state.byId[state.lineup[key]];
-          return `<button class="card ${p ? '' : 'empty'}" style="${cardStyle(p)}" data-slot="${key}">${cardHtml(p, slot)}</button>`;
+          const isCap = p && p.id === state.captain;
+          const mate = p && cap?.contributors.has(p.id);
+          const badges = isCap ? '<span class="cap-badge">C</span>' : '';
+          return `<button class="card ${p ? '' : 'empty'} ${mate ? 'capmate' : ''}" style="${cardStyle(p)}" data-slot="${key}">${cardHtml(p, slot, badges)}</button>`;
         }).join('')}
       </div>
     </div>`).join('');
@@ -202,10 +220,55 @@ function renderChem(sum) {
   }).join('');
 }
 
+const lineupPlayers = () =>
+  LINES.flatMap(line => line.slots.map(s => state.byId[state.lineup[`${line.id}-${s}`]])).filter(Boolean);
+
+function groupLabel(key, rule) {
+  return rule.nations.includes(key) ? `${flag(key)} ${titleCase(key)}` : titleCase(key);
+}
+
+function captainBonusText(rule) {
+  return [rule.ap && `+${rule.ap} AP`, rule.sal && `+$${rule.sal}M`].filter(Boolean).join(' · ');
+}
+
+function renderCaptain(cap) {
+  const c = state.byId[state.captain];
+  const el = $('#captain');
+  if (!c || !cap) {
+    el.innerHTML = `<button class="captain empty-cap" id="captain-pick">
+      <span class="card empty"><span class="plus">+</span><span class="slot">C</span></span>
+      <span class="cap-info"><b>Выбрать капитана</b><small>Капитан даёт AP, если в составе 5–6 игроков из его клубов или стран.</small></span>
+    </button>`;
+    return;
+  }
+  const { rule } = cap;
+  const groups = cap.groups.length > 4 && !cap.groups.some(g => g.count)
+    ? `<span class="chip">${cap.groups.length} клубов: ${esc(cap.groups.slice(0, 3).map(g => titleCase(g.key)).join(', '))}…</span>`
+    : cap.groups.map(g => `<span class="chip ${g.count ? 'ap on' : ''}">${esc(groupLabel(g.key, rule))}${g.count ? ` · ${g.count}` : ''}</span>`).join('');
+  el.innerHTML = `<div class="captain">
+    <button class="card" style="${cardStyle(c)}" id="captain-pick">${cardHtml(c, null, '<span class="cap-badge">C</span>')}</button>
+    <div class="cap-info">
+      <b>${esc(c.name)}</b>
+      <span class="cap-progress ${cap.met ? 'met' : ''}">Сыгранность капитана: ${cap.count}/${rule.needed} игроков</span>
+      <span class="cap-bonus ${cap.met ? 'on' : ''}">${captainBonusText(rule)} ${cap.met ? '— активно' : `— нужно ещё ${rule.needed - cap.count}`}</span>
+      <span class="chips">${groups}</span>
+      <span class="cap-actions"><button id="captain-change">Сменить</button><button id="captain-remove">Убрать</button></span>
+    </div>
+  </div>`;
+}
+
 function renderTeam() {
   const sum = teamSummary(state.lineup, state.byId, state.combos);
+  const captain = state.byId[state.captain];
+  const cap = captain ? captainStatus(captain, lineupPlayers(), state.captains) : null;
+  if (cap) {
+    sum.boost.AP += cap.ap;
+    sum.boost.SAL += cap.sal;
+    sum.salaryCap += cap.sal;
+  }
   renderSummary(sum);
-  renderLineup(sum);
+  renderCaptain(cap);
+  renderLineup(sum, cap);
   renderChem(sum);
 }
 
@@ -224,10 +287,20 @@ function changeHtml(id) {
   return `<small class="${cls}">${ch > 0 ? '+' : ''}${ch.toFixed(1)}%</small>`;
 }
 
+// Для капитанских карточек — коротко, что даёт капитан.
+function extraInfo(p) {
+  if (state.pickerSlot !== 'CAPTAIN' || $('#picker').hidden) return '';
+  const rule = captainRuleFor(p, state.captains);
+  if (!rule) return '';
+  const groups = [...rule.teams, ...rule.nations];
+  const what = groups.length > 2 ? `${groups.length} клубов` : groups.map(titleCase).join(', ');
+  return `<small class="cap-rule">${rule.needed} игроков из: ${esc(what)} → ${captainBonusText(rule)}</small>`;
+}
+
 function playerRow(p, extra = '') {
   return `<button class="mrow" data-id="${p.id}">
-    <span class="badge" style="${cardStyle(p)}">${p.ovr}</span>
-    <span class="info"><b>${flag(p.nation)} ${esc(p.name)}</b><small>${esc(p.pos)} · ${esc(p.card)} · ${esc(p.team)} · $${p.salary.toFixed(1)}M</small></span>
+    <span class="badge" style="${cardStyle(p)}">${p.ovr}${cardImg(p)}</span>
+    <span class="info"><b>${flag(p.nation)} ${esc(p.name)}</b><small>${esc(p.pos)} · ${esc(p.card)} · ${esc(p.team)} · $${p.salary.toFixed(1)}M</small>${extraInfo(p)}</span>
     <span class="price">${fmtPrice(priceOf(p))}${extra}</span>
   </button>`;
 }
@@ -235,29 +308,43 @@ function playerRow(p, extra = '') {
 // ---------- Выбор игрока ----------
 function openPicker(key) {
   state.pickerSlot = key;
-  const slot = slotOf(key);
-  const current = state.byId[state.lineup[key]];
-  $('#picker-title').textContent = current ? `${slot}: ${current.name}` : `Слот ${slot}`;
+  const isCaptain = key === 'CAPTAIN';
+  const current = state.byId[isCaptain ? state.captain : state.lineup[key]];
+  $('#picker-title').textContent = isCaptain
+    ? 'Выбор капитана'
+    : current ? `${slotOf(key)}: ${current.name}` : `Слот ${slotOf(key)}`;
   $('#picker-remove').hidden = !current;
+  $('#picker-allpos').parentElement.hidden = isCaptain;
   $('#picker-search').value = '';
   $('#picker-allpos').checked = false;
-  renderPickerList();
   $('#picker').hidden = false;
+  renderPickerList();
   setTimeout(() => $('#picker-search').focus(), 50);
 }
 
 function renderPickerList() {
-  const slot = slotOf(state.pickerSlot);
+  const isCaptain = state.pickerSlot === 'CAPTAIN';
   const q = $('#picker-search').value.trim();
   const allPos = $('#picker-allpos').checked;
+  const fits = isCaptain ? () => true : p => allPos || slotAccepts(slotOf(state.pickerSlot), p);
   const list = [];
-  for (const p of state.players) {
-    if ((allPos || slotAccepts(slot, p)) && matchesQuery(p, q)) list.push(p);
+  for (const p of isCaptain ? state.captainCards : state.players) {
+    if (fits(p) && matchesQuery(p, q)) list.push(p);
     if (list.length >= PAGE_SIZE) break;
   }
+  const mark = p => isCaptain
+    ? (p.id === state.captain ? '<small class="flat">капитан</small>' : '')
+    : (inLineup(p.id) ? '<small class="flat">в составе</small>' : '');
   $('#picker-list').innerHTML = list.length
-    ? list.map(p => playerRow(p, inLineup(p.id) ? '<small class="flat">в составе</small>' : '')).join('')
+    ? list.map(p => playerRow(p, mark(p))).join('')
     : '<p class="hint">Никого не нашли</p>';
+}
+
+function setCaptain(id) {
+  state.captain = id;
+  saveLineup();
+  renderTeam();
+  haptic('medium');
 }
 
 function assign(key, id) {
@@ -343,13 +430,19 @@ function openDetails(id) {
         <span>Зарплата</span><b>$${p.salary.toFixed(1)}M</b>
       </div>
     </div>
+    ${captainRuleFor(p, state.captains) ? (() => {
+      const rule = captainRuleFor(p, state.captains);
+      const groups = [...rule.teams, ...rule.nations].map(k => groupLabel(k, rule)).join(', ');
+      return `<div class="cap-note"><b>Капитан:</b> ${rule.needed} игроков из ${esc(groups)} → ${captainBonusText(rule)}
+        <button class="btn-ghost" id="details-captain">${state.captain === id ? 'Уже капитан' : 'Сделать капитаном'}</button></div>`;
+    })() : ''}
     ${p.abilities.length ? `<div class="chips" style="margin-bottom:8px">${p.abilities.map(([n, ap]) => `<span class="chip">${esc(n.replace(/_/g, ' '))} · ${ap} AP</span>`).join('')}</div>` : ''}
     <div class="section-title">История цены</div>
     ${sparkline(pr?.history)}
     <div class="section-title">Лучше всего сыгрывается с</div>
     ${best.partners.length ? best.partners.map(({ player: q, combos }) => `
       <div class="partner" data-id="${q.id}">
-        <span class="badge" style="${cardStyle(q)}">${q.ovr}</span>
+        <span class="badge" style="${cardStyle(q)}">${q.ovr}${cardImg(q)}</span>
         <span class="info"><b>${flag(q.nation)} ${esc(q.name)}</b><small class="flat">${esc(q.pos)} · ${esc(q.card)} · ${fmtPrice(priceOf(q))}</small></span>
         <span class="chips">${combos.length} комбо</span>
       </div>`).join('') : '<p class="hint">Этот игрок не входит ни в одну комбинацию.</p>'}
@@ -360,6 +453,12 @@ function openDetails(id) {
           <span class="reqs">${options.map(o => `<span class="req">${esc(reqLabel(o.req))}<small>${esc(o.candidates.slice(0, 2).map(c => surname(c.name)).join(', '))}${o.candidates.length > 2 ? '…' : ''}</small></span>`).join('')}</span>
         </div>`).join('')}` : ''}
     <button class="btn-primary" id="details-add">${inLineup(id) ? 'Уже в составе' : 'Добавить в состав'}</button>`;
+  const capBtn = $('#details-captain');
+  if (capBtn) capBtn.onclick = () => {
+    setCaptain(id);
+    closeSheets();
+    toast(`${p.name} — капитан`);
+  };
   $('#details-add').onclick = () => {
     if (inLineup(id)) return;
     const key = firstFreeSlotFor(p);
@@ -386,15 +485,20 @@ async function loadPrices() {
 }
 
 async function init() {
-  const [players, combos, lineup] = await Promise.all([
+  const [players, combos, captains, saved] = await Promise.all([
     fetch('data/players.json').then(r => r.json()),
     fetch('data/combos.json').then(r => r.json()).catch(() => []),
+    fetch('data/captains.json').then(r => r.json()).catch(() => []),
     loadLineup(),
   ]);
   state.players = players;
   state.combos = combos;
+  state.captains = captains;
+  state.captainCards = players.filter(p => captainRuleFor(p, captains));
   state.byId = Object.fromEntries(players.map(p => [p.id, p]));
-  state.lineup = Object.fromEntries(Object.entries(lineup).filter(([, id]) => state.byId[id]));
+  const slots = saved.slots || saved; // старый формат — просто слоты
+  state.lineup = Object.fromEntries(Object.entries(slots).filter(([, id]) => state.byId[id]));
+  state.captain = state.byId[saved.captain] ? saved.captain : null;
   await loadPrices();
   renderTeam();
   $('#loading').hidden = true;
@@ -432,16 +536,23 @@ $('#lineup').addEventListener('click', e => {
   if (card) openPicker(card.dataset.slot);
 });
 
+$('#captain').addEventListener('click', e => {
+  if (e.target.closest('#captain-remove')) return setCaptain(null);
+  if (e.target.closest('#captain-pick, #captain-change')) openPicker('CAPTAIN');
+});
+
 $('#picker-search').addEventListener('input', renderPickerList);
 $('#picker-allpos').addEventListener('change', renderPickerList);
 $('#picker-list').addEventListener('click', e => {
   const row = e.target.closest('[data-id]');
   if (!row) return;
-  assign(state.pickerSlot, Number(row.dataset.id));
+  if (state.pickerSlot === 'CAPTAIN') setCaptain(Number(row.dataset.id));
+  else assign(state.pickerSlot, Number(row.dataset.id));
   closeSheets();
 });
 $('#picker-remove').addEventListener('click', () => {
-  delete state.lineup[state.pickerSlot];
+  if (state.pickerSlot === 'CAPTAIN') state.captain = null;
+  else delete state.lineup[state.pickerSlot];
   saveLineup();
   renderTeam();
   closeSheets();
@@ -472,6 +583,7 @@ $('#clear-lineup').addEventListener('click', () => {
   const doClear = ok => {
     if (!ok) return;
     state.lineup = {};
+    state.captain = null;
     saveLineup();
     renderTeam();
   };

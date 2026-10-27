@@ -63,7 +63,7 @@ input, select {
 
 /* Карточка */
 .card {
-  position: relative; aspect-ratio: 3 / 4; border-radius: 10px; overflow: hidden;
+  position: relative; aspect-ratio: 200 / 281; border-radius: 10px; overflow: hidden;
   display: flex; flex-direction: column; justify-content: space-between; padding: 6px;
   background: linear-gradient(160deg, var(--c1, #2a2f3a), var(--c2, #14171d));
   border: 1px solid rgba(255,255,255,.12); text-align: left;
@@ -151,3 +151,29 @@ input, select {
 .req.ok { background: rgba(61,220,132,.12); color: var(--green); }
 .req.need { background: rgba(255,92,92,.14); color: var(--red); border: 1px dashed rgba(255,92,92,.5); }
 .partner .chips { font-size: 11px; color: var(--hint); white-space: nowrap; }
+
+/* Картинки карточек */
+.card-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; opacity: 0; transition: opacity .25s; }
+.card-img.ok { opacity: 1; }
+.card:has(.card-img.ok) { border-color: transparent; }
+.card .offpos, .card .cap-badge { z-index: 2; }
+.badge { position: relative; overflow: hidden; }
+.badge .card-img { border-radius: 8px; }
+.card.capmate { box-shadow: 0 0 0 2px #f5b301; }
+.cap-badge { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 50%; background: #f5b301; color: #000; font-weight: 900; font-size: 12px; display: grid; place-items: center; }
+
+/* Капитан */
+.captain { display: flex; gap: 12px; align-items: stretch; background: var(--bg2); border-radius: var(--radius); padding: 10px; margin-bottom: 12px; width: 100%; text-align: left; }
+.captain > .card { width: 84px; flex-shrink: 0; }
+.captain.empty-cap .card { width: 64px; }
+.cap-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.cap-info small { color: var(--hint); font-size: 12px; }
+.cap-progress { font-size: 12px; font-weight: 700; color: var(--hint); }
+.cap-progress.met { color: var(--green); }
+.cap-bonus { font-size: 13px; font-weight: 800; color: var(--hint); }
+.cap-bonus.on { color: var(--purple); }
+.cap-actions { display: flex; gap: 14px; margin-top: auto; }
+.cap-actions button { color: var(--accent); font-size: 13px; font-weight: 600; padding: 2px 0; }
+.cap-rule { display: block; color: #f5b301 !important; }
+.cap-note { background: rgba(245,179,1,.08); border: 1px solid rgba(245,179,1,.25); border-radius: var(--radius); padding: 10px; font-size: 13px; margin-bottom: 10px; }
+.cap-note .btn-ghost { margin: 6px 0 0; padding: 0; color: #f5b301; font-weight: 700; }

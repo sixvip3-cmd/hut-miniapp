@@ -177,3 +177,73 @@ function bestCombosFor(player, allPlayers, combos, { limitCombos = 5, limitPartn
     .slice(0, limitPartners);
   return { combos: fits.slice(0, limitCombos), partners: topPartners };
 }
+
+// ---------- Капитан ----------
+// Капитан — карточка, для которой есть правило (по player_id или по имени + типу карточки).
+// Бонус (+AP / +SAL) активен, когда в составе набирается нужное число игроков из клубов
+// или стран капитана. Сам капитан тоже считается. Клуб засчитывается и для его Alumni-карточек.
+
+function captainRuleFor(p, rules) {
+  if (!p) return null;
+  const byId = rules.find(r => r.playerId != null && Number(r.playerId) === p.id);
+  if (byId) return byId;
+  const name = p.name.trim().replace(/\s+/g, ' ').toUpperCase();
+  const card = p.card.trim().toUpperCase();
+  return rules.find(r => r.playerId == null && r.name === name && r.cardTypes.includes(card)) || null;
+}
+
+function captainTeamKeys(rule) {
+  const keys = new Map(); // вариант названия → базовый клуб
+  for (const t of rule.teams) {
+    const variants = [t];
+    if (t.includes('ST. LOUIS')) variants.push(t.replace('ST. LOUIS', 'ST LOUIS'));
+    else if (t.includes('ST LOUIS')) variants.push(t.replace('ST LOUIS', 'ST. LOUIS'));
+    for (const v of variants) {
+      keys.set(v, t);
+      if (!v.endsWith(' ALUMNI')) keys.set(`${v} ALUMNI`, t);
+    }
+  }
+  return keys;
+}
+
+// Какому клубу/стране капитана соответствует игрок (или null).
+function captainMatch(p, rule, keys = captainTeamKeys(rule)) {
+  const team = p.team.trim().toUpperCase();
+  if (keys.has(team)) return keys.get(team);
+  const nation = p.nation.trim().toUpperCase();
+  return rule.nations.includes(nation) ? nation : null;
+}
+
+function captainStatus(captain, lineupPlayers, rules) {
+  const rule = captainRuleFor(captain, rules);
+  if (!rule) return null;
+  const keys = captainTeamKeys(rule);
+  const counts = new Map();
+  const contributors = new Set();
+  const add = (p, key) => {
+    counts.set(key, (counts.get(key) || 0) + 1);
+    contributors.add(p.id);
+  };
+  let count = 1; // сам капитан
+  contributors.add(captain.id);
+  const own = captainMatch(captain, rule, keys);
+  if (own) counts.set(own, 1);
+  for (const p of lineupPlayers) {
+    if (p.id === captain.id) continue;
+    const key = captainMatch(p, rule, keys);
+    if (key) {
+      count++;
+      add(p, key);
+    }
+  }
+  const met = count >= rule.needed;
+  return {
+    rule,
+    count,
+    met,
+    contributors,
+    groups: [...rule.teams, ...rule.nations].map(k => ({ key: k, count: counts.get(k) || 0 })),
+    ap: met ? rule.ap : 0,
+    sal: met ? rule.sal : 0,
+  };
+}
