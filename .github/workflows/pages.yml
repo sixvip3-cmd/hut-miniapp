@@ -45,11 +45,17 @@ jobs:
           git commit -m "Sync hutdb.app data" || echo "no changes"
           git push
 
+      # Версия = хэш кода приложения. Подставляется в ссылки на файлы, чтобы Telegram
+      # не показывал старую версию из кэша; version.json проверяется при запуске.
       - name: Build site
         run: |
           mkdir -p _site
           cp -r public/. _site/
           cp -r data _site/data
+          V=$(cat public/* | sha1sum | cut -c1-10)
+          sed -i "s/__APP_VERSION__/$V/g" _site/index.html
+          echo "{\"v\":\"$V\"}" > _site/version.json
+          echo "version $V"
 
       - uses: actions/configure-pages@v5
 

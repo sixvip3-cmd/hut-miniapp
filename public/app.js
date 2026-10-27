@@ -1,6 +1,27 @@
 const tg = window.Telegram?.WebApp;
 tg?.ready();
 tg?.expand();
+try {
+  if (tg?.isVersionAtLeast?.('6.1')) {
+    tg.setHeaderColor('#06080c');
+    tg.setBackgroundColor('#06080c');
+  }
+  if (tg?.isVersionAtLeast?.('7.10')) tg.setBottomBarColor('#06080c');
+} catch {}
+
+// Защита от старой версии в кэше Telegram: если на сервере вышла новая — перезагружаемся.
+const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || '';
+async function ensureFreshVersion() {
+  if (!APP_VERSION || APP_VERSION.startsWith('__')) return; // локальный запуск
+  try {
+    const { v } = await (await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })).json();
+    if (v && v !== APP_VERSION && sessionStorage.getItem('reloadedFor') !== v) {
+      sessionStorage.setItem('reloadedFor', v);
+      location.replace(`${location.pathname}?v=${v}${location.hash}`);
+    }
+  } catch {}
+}
+ensureFreshVersion();
 
 const STORAGE_KEY = 'hut-lineup-v2';
 const PRICE_REFRESH_MS = 60 * 60 * 1000;
@@ -156,13 +177,23 @@ function cardHtml(p, slot, badges = '') {
 const reqLabel = r => (r.type === 'nation' ? `${flag(r.nation)} ${r.label}` : r.label);
 
 // ---------- Вкладка «Команда» ----------
+const RING = 2 * Math.PI * 44;
+
 function renderSummary(sum) {
-  $('#sum-ovr').textContent = sum.ovr;
-  const salaryEl = $('#sum-salary');
-  salaryEl.textContent = `$${sum.salary.toFixed(1)}M`;
-  salaryEl.classList.toggle('over', sum.salary > sum.salaryCap);
-  $('#sum-cap').textContent = `кап $${sum.salaryCap}M (+${sum.boost.SAL})`;
-  $('#sum-ap').textContent = `${sum.boost.AP}/${CHEMISTRY.maxAp}`;
+  $('#sum-ovr').textContent = sum.ovr || '—';
+  // Кольцо OVR: шкала от 60 до 99, чтобы разница между составами была заметна.
+  const k = sum.ovr ? Math.min(1, Math.max(0.04, (sum.ovr - 60) / 39)) : 0;
+  $('#ovr-arc').style.strokeDashoffset = RING * (1 - k);
+
+  const over = sum.salary > sum.salaryCap;
+  $('#sum-salary').textContent = `$${sum.salary.toFixed(1)}M`;
+  $('#sum-salary').classList.toggle('over', over);
+  $('#sum-cap').textContent = `/ $${sum.salaryCap}M${sum.boost.SAL ? ` (+${sum.boost.SAL})` : ''}`;
+  $('#bar-salary').classList.toggle('over', over);
+  $('#bar-salary i').style.width = `${Math.min(100, (sum.salary / sum.salaryCap) * 100)}%`;
+
+  $('#sum-ap').textContent = sum.boost.AP;
+  $('#bar-ap i').style.width = `${Math.min(100, (sum.boost.AP / CHEMISTRY.maxAp) * 100)}%`;
 }
 
 function bonusChips(t) {
@@ -245,32 +276,6 @@ function captainBonusText(rule) {
   return [rule.ap && `+${rule.ap} AP`, rule.sal && `+$${rule.sal}M`].filter(Boolean).join(' · ');
 }
 
-function renderCaptain(cap) {
-  const c = state.byId[state.captain];
-  const el = $('#captain');
-  if (!c || !cap) {
-    el.innerHTML = `<button class="captain empty-cap" id="captain-pick">
-      <span class="card empty"><span class="plus">+</span><span class="slot">C</span></span>
-      <span class="cap-info"><b>Выбрать капитана</b><small>Капитан даёт AP, если в составе 5–6 игроков из его клубов или стран.</small></span>
-    </button>`;
-    return;
-  }
-  const { rule } = cap;
-  const groups = cap.groups.length > 4 && !cap.groups.some(g => g.count)
-    ? `<span class="chip">${cap.groups.length} клубов: ${esc(cap.groups.slice(0, 3).map(g => titleCase(g.key)).join(', '))}…</span>`
-    : cap.groups.map(g => `<span class="chip ${g.count ? 'ap on' : ''}">${esc(groupLabel(g.key, rule))}${g.count ? ` · ${g.count}` : ''}</span>`).join('');
-  el.innerHTML = `<div class="captain">
-    <button class="card" style="${cardStyle(c)}" id="captain-pick">${cardHtml(c, null, '<span class="cap-badge">C</span>')}</button>
-    <div class="cap-info">
-      <b>${esc(c.name)}</b>
-      <span class="cap-progress ${cap.met ? 'met' : ''}">Сыгранность капитана: ${cap.count}/${rule.needed} игроков</span>
-      <span class="cap-bonus ${cap.met ? 'on' : ''}">${captainBonusText(rule)} ${cap.met ? '— активно' : `— нужно ещё ${rule.needed - cap.count}`}</span>
-      <span class="chips">${groups}</span>
-      <span class="cap-actions"><button id="captain-change">Сменить</button><button id="captain-remove">Убрать</button></span>
-    </div>
-  </div>`;
-}
-
 const coachById = id => state.coaches.find(c => c.id === id);
 const reqsText = reqs => {
   const labels = reqs.map(r => r.label);
@@ -285,33 +290,70 @@ function coachSummaryText(coach) {
   return teams.slice(0, 3).join(', ') + (teams.length > 3 ? '…' : '');
 }
 
-function renderCoach(st) {
+// Плитки «Капитан» и «Тренер» + раскрывающаяся панель с подробностями.
+function renderStaff(cap, co) {
+  const c = state.byId[state.captain];
   const coach = coachById(state.coach);
-  const el = $('#coach');
-  if (!coach || !st) {
-    el.innerHTML = `<button class="captain empty-cap" id="coach-pick">
-      <span class="card empty coach-photo"><span class="plus">+</span><span class="slot">Тренер</span></span>
-      <span class="cap-info"><b>Выбрать тренера</b><small>Тренер добавляет 6 своих комбинаций: 3 для звеньев и 3 для защиты или вратарей.</small></span>
-    </button>`;
-    return;
+  if (state.staffOpen === 'captain' && !c) state.staffOpen = null;
+  if (state.staffOpen === 'coach' && !coach) state.staffOpen = null;
+
+  const captainTile = c && cap
+    ? `<button class="staff-tile ${state.staffOpen === 'captain' ? 'open' : ''}" data-staff="captain">
+        <span class="card" style="${cardStyle(c)}">${cardHtml(c)}</span>
+        <span class="staff-info">
+          <span class="staff-role">Капитан</span>
+          <span class="staff-name">${esc(c.name)}</span>
+          <span class="staff-sub ${cap.met ? 'met' : ''}">${cap.met ? `✓ ${captainBonusText(cap.rule)}` : `${cap.count}/${cap.rule.needed} игроков`}</span>
+        </span>
+      </button>`
+    : `<button class="staff-tile" data-staff="captain">
+        <span class="card empty"><span class="plus">+</span></span>
+        <span class="staff-info"><span class="staff-role">Капитан</span><span class="staff-name">Выбрать</span><span class="staff-sub">до +20 AP</span></span>
+      </button>`;
+
+  const coachTile = coach && co
+    ? `<button class="staff-tile ${state.staffOpen === 'coach' ? 'open' : ''}" data-staff="coach">
+        <span class="card coach-photo">${coachImg(coach)}</span>
+        <span class="staff-info">
+          <span class="staff-role">Тренер</span>
+          <span class="staff-name">${esc(coach.name)}</span>
+          <span class="staff-sub ${co.activeCount ? 'met' : ''}">Комбинации ${co.activeCount}/${co.combos.length}</span>
+        </span>
+      </button>`
+    : `<button class="staff-tile" data-staff="coach">
+        <span class="card empty coach-photo"><span class="plus">+</span></span>
+        <span class="staff-info"><span class="staff-role">Тренер</span><span class="staff-name">Выбрать</span><span class="staff-sub">6 комбинаций</span></span>
+      </button>`;
+
+  $('#staff').innerHTML = captainTile + coachTile;
+
+  let detail = '';
+  if (state.staffOpen === 'captain') {
+    const { rule } = cap;
+    const groups = cap.groups.length > 4 && !cap.groups.some(g => g.count)
+      ? `<span class="chip">${cap.groups.length} клубов: ${esc(cap.groups.slice(0, 3).map(g => titleCase(g.key)).join(', '))}…</span>`
+      : cap.groups.map(g => `<span class="chip ${g.count ? 'ap on' : ''}">${esc(groupLabel(g.key, rule))}${g.count ? ` · ${g.count}` : ''}</span>`).join('');
+    detail = `<div class="staff-detail">
+      <span class="cap-progress ${cap.met ? 'met' : ''}">Сыгранность капитана: ${cap.count}/${rule.needed} игроков</span>
+      <div class="cap-bonus ${cap.met ? 'on' : ''}">${captainBonusText(rule)} ${cap.met ? '— активно' : `— нужно ещё ${rule.needed - cap.count}`}</div>
+      <div class="chips">${groups}</div>
+      <div class="staff-actions"><button class="primary" data-act="captain-change">Сменить</button><button data-act="captain-remove">Убрать</button></div>
+    </div>`;
+  } else if (state.staffOpen === 'coach') {
+    const rows = co.combos.map(({ combo, active, lineId, matched }) => `
+      <div class="combo">
+        <span class="chips">${boostChips(combo.boost)}</span>
+        <span class="reqs"><span class="req ${active ? 'ok' : ''}">${esc(reqsText(combo.reqs))}<small>${combo.cat === 'F' ? 'звено' : 'защита/вратари'} · ${
+          active ? `✓ ${LINE_LABELS[lineId]}` : `${matched}/${combo.reqs.length}${lineId ? ` в «${LINE_LABELS[lineId]}»` : ''}`}</small></span></span>
+      </div>`).join('');
+    detail = `<div class="staff-detail">
+      <span class="cap-progress ${co.activeCount ? 'met' : ''}">${esc(coach.team)} · сработало ${co.activeCount} из ${co.combos.length}</span>
+      <div class="chips">${boostChips(co.total) || '<span class="chip">пока без бонусов</span>'}</div>
+      ${rows}
+      <div class="staff-actions"><button class="primary" data-act="coach-change">Сменить</button><button data-act="coach-remove">Убрать</button></div>
+    </div>`;
   }
-  const rows = st.combos.map(({ combo, active, lineId, matched }) => `
-    <div class="combo ${active ? 'on' : ''}">
-      <span class="chips">${boostChips(combo.boost)}</span>
-      <span class="reqs"><span class="req ${active ? 'ok' : ''}">${esc(reqsText(combo.reqs))}<small>${combo.cat === 'F' ? 'звено' : 'защита/вратари'} · ${
-        active ? `✓ ${LINE_LABELS[lineId]}` : `${matched}/${combo.reqs.length}${lineId ? ` в «${LINE_LABELS[lineId]}»` : ''}`}</small></span></span>
-    </div>`).join('');
-  el.innerHTML = `<div class="captain coach">
-    <button class="card coach-photo" id="coach-pick">${coachImg(coach)}</button>
-    <div class="cap-info">
-      <b>${esc(coach.name)}</b>
-      <small>${esc(coach.team)}</small>
-      <span class="cap-progress ${st.activeCount ? 'met' : ''}">Комбинации тренера: ${st.activeCount}/${st.combos.length}</span>
-      <span class="chips">${boostChips(st.total) || '<span class="chip">пока без бонусов</span>'}</span>
-      <span class="cap-actions"><button id="coach-change">Сменить</button><button id="coach-remove">Убрать</button><button id="coach-toggle">${state.coachOpen ? 'Скрыть' : 'Комбинации'}</button></span>
-    </div>
-  </div>
-  ${state.coachOpen ? `<div class="line coach-combos">${rows}</div>` : ''}`;
+  $('#staff-detail').innerHTML = detail;
 }
 
 function coachImg(coach, thumb = false) {
@@ -347,8 +389,7 @@ function renderTeam() {
   }
   state.coachState = co;
   renderSummary(sum);
-  renderCaptain(cap);
-  renderCoach(co);
+  renderStaff(cap, co);
   renderLineup(sum, cap);
   renderChem(sum);
 }
@@ -651,18 +692,23 @@ $('#lineup').addEventListener('click', e => {
   if (card) openPicker(card.dataset.slot);
 });
 
-$('#captain').addEventListener('click', e => {
-  if (e.target.closest('#captain-remove')) return setCaptain(null);
-  if (e.target.closest('#captain-pick, #captain-change')) openPicker('CAPTAIN');
+$('#staff').addEventListener('click', e => {
+  const tile = e.target.closest('[data-staff]');
+  if (!tile) return;
+  const kind = tile.dataset.staff;
+  const isSet = kind === 'captain' ? state.captain : state.coach;
+  if (!isSet) return openPicker(kind === 'captain' ? 'CAPTAIN' : 'COACH');
+  state.staffOpen = state.staffOpen === kind ? null : kind;
+  haptic();
+  renderTeam();
 });
 
-$('#coach').addEventListener('click', e => {
-  if (e.target.closest('#coach-remove')) return setCoach(null);
-  if (e.target.closest('#coach-toggle')) {
-    state.coachOpen = !state.coachOpen;
-    return renderTeam();
-  }
-  if (e.target.closest('#coach-pick, #coach-change')) openPicker('COACH');
+$('#staff-detail').addEventListener('click', e => {
+  const act = e.target.closest('[data-act]')?.dataset.act;
+  if (act === 'captain-change') openPicker('CAPTAIN');
+  if (act === 'captain-remove') setCaptain(null);
+  if (act === 'coach-change') openPicker('COACH');
+  if (act === 'coach-remove') setCoach(null);
 });
 
 $('#picker-search').addEventListener('input', renderPickerList);

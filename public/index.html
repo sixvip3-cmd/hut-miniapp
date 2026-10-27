@@ -3,21 +3,60 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="app-version" content="__APP_VERSION__">
+  <meta name="theme-color" content="#06080c">
   <title>HUT Builder</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://cfahmyecewzymggdoebn.supabase.co" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Oswald:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="style.css?v=__APP_VERSION__">
 </head>
 <body>
-  <div id="loading">Загружаю базу игроков…</div>
+  <div id="loading">
+    <div class="loader">
+      <div class="brand-mark">H</div>
+      <div class="loader-bar"><i></i></div>
+      <span>Загружаю базу игроков</span>
+    </div>
+  </div>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="goldGrad" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#f6dc9a"/><stop offset=".45" stop-color="#e3bd6a"/><stop offset="1" stop-color="#b8892b"/>
+      </linearGradient>
+    </defs>
+  </svg>
+
   <main id="view-team" class="view active">
-    <section class="summary">
-      <div class="stat"><span class="stat-label">OVR</span><b id="sum-ovr">0</b></div>
-      <div class="stat"><span class="stat-label">Зарплата</span><b id="sum-salary">$0M</b><small id="sum-cap"></small></div>
-      <div class="stat"><span class="stat-label">AP</span><b id="sum-ap">0/40</b></div>
+    <header class="brand">
+      <div class="brand-mark">H</div>
+      <div class="brand-name">HUT <span>Builder</span></div>
+      <div class="brand-tag">NHL 27</div>
+    </header>
+
+    <section class="hero">
+      <div class="ovr-ring">
+        <svg viewBox="0 0 100 100"><circle class="track" cx="50" cy="50" r="44" fill="none" stroke-width="6"/><circle class="value" id="ovr-arc" cx="50" cy="50" r="44" fill="none" stroke-width="6" stroke-dasharray="276.46" stroke-dashoffset="276.46"/></svg>
+        <b id="sum-ovr">0</b>
+        <small>OVR</small>
+      </div>
+      <div class="meters">
+        <div>
+          <div class="meter-head"><span class="meter-label">Зарплата</span><b id="sum-salary">$0.0M</b><small id="sum-cap">/ $80M</small></div>
+          <div class="bar" id="bar-salary"><i></i></div>
+        </div>
+        <div>
+          <div class="meter-head"><span class="meter-label">Ability points</span><b id="sum-ap">0</b><small>/ 40</small></div>
+          <div class="bar ap" id="bar-ap"><i></i></div>
+        </div>
+      </div>
     </section>
 
-    <section id="captain"></section>
-    <section id="coach"></section>
+    <section class="staff" id="staff"></section>
+    <section id="staff-detail"></section>
 
     <div class="segmented" id="team-mode">
       <button data-mode="lineup" class="active">Состав</button>
@@ -40,6 +79,7 @@
   </main>
 
   <main id="view-market" class="view">
+    <header class="page-title"><h1>Маркет</h1><span>HUTDB · КАЖДЫЙ ЧАС</span></header>
     <div class="market-head">
       <input id="market-search" type="search" placeholder="Поиск игрока, команды, программы…">
       <select id="market-sort">
@@ -57,8 +97,14 @@
   </main>
 
   <nav class="tabbar">
-    <button data-view="team" class="active"><span>🏒</span>Команда</button>
-    <button data-view="market"><span>📈</span>Маркет</button>
+    <button data-view="team" class="active">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+      Состав
+    </button>
+    <button data-view="market">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/><path d="M15 8h4v4"/></svg>
+      Маркет
+    </button>
   </nav>
 
   <!-- Поиск игрока для слота -->
@@ -88,7 +134,7 @@
 
   <div class="toast" id="toast" hidden></div>
 
-  <script src="chemistry.js"></script>
-  <script src="app.js"></script>
+  <script src="chemistry.js?v=__APP_VERSION__"></script>
+  <script src="app.js?v=__APP_VERSION__"></script>
 </body>
 </html>
