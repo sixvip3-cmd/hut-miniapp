@@ -5,8 +5,11 @@ tg?.expand();
 const STORAGE_KEY = 'hut-lineup-v2';
 const PRICE_REFRESH_MS = 60 * 60 * 1000;
 const PAGE_SIZE = 60;
-// Картинки карточек отдаёт хранилище hutdb.app (те же ссылки, что и на их сайте).
-const IMG_BASE = 'https://cfahmyecewzymggdoebn.supabase.co/storage/v1/render/image/public/assets/cards/';
+// Картинки отдаёт хранилище hutdb.app. Большие карточки — оригиналы 804×1128,
+// миниатюры в списках — уменьшенные копии (те же, что на сайте hutdb, они уже в кэше).
+const STORAGE = 'https://cfahmyecewzymggdoebn.supabase.co/storage/v1';
+const ORIGINAL_BASE = `${STORAGE}/object/public/assets/`;
+const THUMB_BASE = `${STORAGE}/render/image/public/assets/`;
 
 const FLAGS = {
   CANADA: '🇨🇦', USA: '🇺🇸', SWEDEN: '🇸🇪', FINLAND: '🇫🇮', RUSSIA: '🇷🇺', CZECHIA: '🇨🇿', SLOVAKIA: '🇸🇰',
@@ -40,6 +43,8 @@ const state = {
   lineup: {},
   captain: null,
   captains: [],
+  coach: null,
+  coaches: [],
   captainCards: [],
   chemType: 'SAL',
   pickerSlot: null,
@@ -56,8 +61,12 @@ const haptic = type => {
 const priceOf = p => state.prices.prices[p.id]?.price || 0;
 const surname = name => name.split(' ').slice(1).join(' ') || name;
 const titleCase = s => s.toLowerCase().replace(/(^|[\s.-])\p{L}/gu, m => m.toUpperCase());
-const imgUrl = p =>
-  p?.img ? `${IMG_BASE}${p.img}${p.img.includes('?') ? '&' : '?'}resize=contain&width=200&quality=72` : null;
+function imgUrl(p, thumb = false) {
+  if (!p?.img) return null;
+  const path = p.img.includes('/') ? p.img : `cards/${p.img}`;
+  if (!thumb) return ORIGINAL_BASE + path;
+  return `${THUMB_BASE}${path}${path.includes('?') ? '&' : '?'}resize=contain&width=200&quality=80`;
+}
 
 function timeAgo(iso) {
   if (!iso) return '';
@@ -81,7 +90,7 @@ function toast(text) {
 const hasCloud = () => !!(tg?.initData && tg.isVersionAtLeast?.('6.9') && tg.CloudStorage);
 
 function saveLineup() {
-  const data = JSON.stringify({ slots: state.lineup, captain: state.captain });
+  const data = JSON.stringify({ slots: state.lineup, captain: state.captain, coach: state.coach });
   try { localStorage.setItem(STORAGE_KEY, data); } catch {}
   if (hasCloud()) {
     try { tg.CloudStorage.setItem(STORAGE_KEY, data, () => {}); } catch {}
@@ -122,8 +131,8 @@ function cardStyle(p) {
 }
 
 // Картинка карточки поверх запасного варианта (если картинка не загрузится — останется плашка).
-function cardImg(p) {
-  const url = imgUrl(p);
+function cardImg(p, thumb = false) {
+  const url = imgUrl(p, thumb);
   return url ? `<img class="card-img" src="${url}" alt="" loading="lazy" decoding="async" onload="this.classList.add('ok')" onerror="this.remove()">` : '';
 }
 
@@ -215,6 +224,11 @@ function renderChem(sum) {
       </div>
       ${players.length ? '' : '<p class="hint">Линия пустая</p>'}
       ${activeHtml}
+      ${(state.coachState?.combos || []).filter(c => c.active && c.lineId === line.id && c.combo.boost[type]).map(c => `
+        <div class="combo on">
+          <span class="combo-boost" style="color:${color}">${boostText(type, c.combo.boost[type])}</span>
+          <span class="reqs"><span class="req ok">Тренер<small>${esc(reqsText(c.combo.reqs))}</small></span></span>
+        </div>`).join('')}
       ${missHtml ? `<p class="hint sub">Не хватает одного игрока (выделено):</p>${missHtml}` : ''}
     </div>`;
   }).join('');
@@ -257,6 +271,56 @@ function renderCaptain(cap) {
   </div>`;
 }
 
+const coachById = id => state.coaches.find(c => c.id === id);
+const reqsText = reqs => {
+  const labels = reqs.map(r => r.label);
+  return labels.every(l => l === labels[0]) ? `${labels.length}× ${labels[0]}` : labels.join(' + ');
+};
+const LINE_LABELS = Object.fromEntries(LINES.map(l => [l.id, l.label]));
+
+// Что нужно тренеру, если это не просто его клуб.
+function coachSummaryText(coach) {
+  const teams = [...new Set(coach.combos.flatMap(c => c.reqs.map(r => r.label)))];
+  if (teams.length === 1 && teams[0].toUpperCase() === coach.team.toUpperCase()) return '';
+  return teams.slice(0, 3).join(', ') + (teams.length > 3 ? '…' : '');
+}
+
+function renderCoach(st) {
+  const coach = coachById(state.coach);
+  const el = $('#coach');
+  if (!coach || !st) {
+    el.innerHTML = `<button class="captain empty-cap" id="coach-pick">
+      <span class="card empty coach-photo"><span class="plus">+</span><span class="slot">Тренер</span></span>
+      <span class="cap-info"><b>Выбрать тренера</b><small>Тренер добавляет 6 своих комбинаций: 3 для звеньев и 3 для защиты или вратарей.</small></span>
+    </button>`;
+    return;
+  }
+  const rows = st.combos.map(({ combo, active, lineId, matched }) => `
+    <div class="combo ${active ? 'on' : ''}">
+      <span class="chips">${boostChips(combo.boost)}</span>
+      <span class="reqs"><span class="req ${active ? 'ok' : ''}">${esc(reqsText(combo.reqs))}<small>${combo.cat === 'F' ? 'звено' : 'защита/вратари'} · ${
+        active ? `✓ ${LINE_LABELS[lineId]}` : `${matched}/${combo.reqs.length}${lineId ? ` в «${LINE_LABELS[lineId]}»` : ''}`}</small></span></span>
+    </div>`).join('');
+  el.innerHTML = `<div class="captain coach">
+    <button class="card coach-photo" id="coach-pick">${coachImg(coach)}</button>
+    <div class="cap-info">
+      <b>${esc(coach.name)}</b>
+      <small>${esc(coach.team)}</small>
+      <span class="cap-progress ${st.activeCount ? 'met' : ''}">Комбинации тренера: ${st.activeCount}/${st.combos.length}</span>
+      <span class="chips">${boostChips(st.total) || '<span class="chip">пока без бонусов</span>'}</span>
+      <span class="cap-actions"><button id="coach-change">Сменить</button><button id="coach-remove">Убрать</button><button id="coach-toggle">${state.coachOpen ? 'Скрыть' : 'Комбинации'}</button></span>
+    </div>
+  </div>
+  ${state.coachOpen ? `<div class="line coach-combos">${rows}</div>` : ''}`;
+}
+
+function coachImg(coach, thumb = false) {
+  const url = !coach.img ? null : thumb
+    ? `${THUMB_BASE}${coach.img}?resize=cover&width=200&height=260&quality=80`
+    : ORIGINAL_BASE + coach.img;
+  return `<span class="coach-fallback">${esc(coach.name)}</span>${url ? `<img class="card-img" src="${url}" alt="" loading="lazy" onload="this.classList.add('ok')" onerror="this.remove()">` : ''}`;
+}
+
 function renderTeam() {
   const sum = teamSummary(state.lineup, state.byId, state.combos);
   const captain = state.byId[state.captain];
@@ -266,8 +330,25 @@ function renderTeam() {
     sum.boost.SAL += cap.sal;
     sum.salaryCap += cap.sal;
   }
+  const coach = coachById(state.coach);
+  const co = coach ? coachStatus(coach, state.lineup, state.byId) : null;
+  if (co) {
+    sum.boost.AP += co.total.AP;
+    sum.boost.SAL += co.total.SAL;
+    sum.salaryCap += co.total.SAL;
+    let extraOvr = 0;
+    for (const [lineId, t] of Object.entries(co.lineTotals)) {
+      const lt = sum.lines[lineId].total;
+      for (const k of ['OVR', 'SAL', 'AP']) lt[k] += t[k];
+      const line = LINES.find(l => l.id === lineId);
+      extraOvr += t.OVR * line.slots.filter(s => state.lineup[`${lineId}-${s}`]).length;
+    }
+    if (sum.count) sum.ovr = Math.round(sum.ovr + extraOvr / sum.count);
+  }
+  state.coachState = co;
   renderSummary(sum);
   renderCaptain(cap);
+  renderCoach(co);
   renderLineup(sum, cap);
   renderChem(sum);
 }
@@ -299,7 +380,7 @@ function extraInfo(p) {
 
 function playerRow(p, extra = '') {
   return `<button class="mrow" data-id="${p.id}">
-    <span class="badge" style="${cardStyle(p)}">${p.ovr}${cardImg(p)}</span>
+    <span class="badge" style="${cardStyle(p)}">${p.ovr}${cardImg(p, true)}</span>
     <span class="info"><b>${flag(p.nation)} ${esc(p.name)}</b><small>${esc(p.pos)} · ${esc(p.card)} · ${esc(p.team)} · $${p.salary.toFixed(1)}M</small>${extraInfo(p)}</span>
     <span class="price">${fmtPrice(priceOf(p))}${extra}</span>
   </button>`;
@@ -309,12 +390,13 @@ function playerRow(p, extra = '') {
 function openPicker(key) {
   state.pickerSlot = key;
   const isCaptain = key === 'CAPTAIN';
-  const current = state.byId[isCaptain ? state.captain : state.lineup[key]];
-  $('#picker-title').textContent = isCaptain
+  const isCoach = key === 'COACH';
+  const current = isCoach ? coachById(state.coach) : state.byId[isCaptain ? state.captain : state.lineup[key]];
+  $('#picker-title').textContent = isCoach ? 'Выбор тренера' : isCaptain
     ? 'Выбор капитана'
     : current ? `${slotOf(key)}: ${current.name}` : `Слот ${slotOf(key)}`;
   $('#picker-remove').hidden = !current;
-  $('#picker-allpos').parentElement.hidden = isCaptain;
+  $('#picker-allpos').parentElement.hidden = isCaptain || isCoach;
   $('#picker-search').value = '';
   $('#picker-allpos').checked = false;
   $('#picker').hidden = false;
@@ -322,11 +404,31 @@ function openPicker(key) {
   setTimeout(() => $('#picker-search').focus(), 50);
 }
 
+function renderCoachList() {
+  const q = $('#picker-search').value.trim().toLowerCase();
+  const list = state.coaches
+    .filter(c => !q || `${c.name} ${c.team} ${c.nation} ${coachSummaryText(c)}`.toLowerCase().includes(q))
+    .map(c => ({ c, st: coachStatus(c, state.lineup, state.byId) }))
+    .sort((a, b) => b.st.activeCount - a.st.activeCount || a.c.name.localeCompare(b.c.name));
+  $('#picker-list').innerHTML = list.map(({ c, st }) => `
+    <button class="mrow" data-coach="${esc(c.id)}">
+      <span class="badge coach-thumb">${coachImg(c, true)}</span>
+      <span class="info"><b>${esc(c.name)}</b><small>${esc([c.team, coachSummaryText(c)].filter(Boolean).join(' · '))}</small>
+        <small class="cap-rule">Сейчас сработает: ${st.activeCount}/${st.combos.length}${st.activeCount ? ` → ${['OVR', 'SAL', 'AP'].filter(t => st.total[t]).map(t => boostText(t, st.total[t])).join(' ')}` : ''}</small></span>
+      <span class="price">${c.id === state.coach ? '<small class="flat">выбран</small>' : ''}</span>
+    </button>`).join('') || '<p class="hint">Никого не нашли</p>';
+}
+
 function renderPickerList() {
+  if (state.pickerSlot === 'COACH') return renderCoachList();
   const isCaptain = state.pickerSlot === 'CAPTAIN';
   const q = $('#picker-search').value.trim();
   const allPos = $('#picker-allpos').checked;
-  const fits = isCaptain ? () => true : p => allPos || slotAccepts(slotOf(state.pickerSlot), p);
+  // Игроков, которые уже стоят в составе (любой их карточкой), в списке не показываем.
+  const taken = new Set(isCaptain ? [] : lineupPlayers().map(p => p.name.trim().toLowerCase()));
+  const fits = isCaptain
+    ? () => true
+    : p => (allPos || slotAccepts(slotOf(state.pickerSlot), p)) && !taken.has(p.name.trim().toLowerCase());
   const list = [];
   for (const p of isCaptain ? state.captainCards : state.players) {
     if (fits(p) && matchesQuery(p, q)) list.push(p);
@@ -340,6 +442,13 @@ function renderPickerList() {
     : '<p class="hint">Никого не нашли</p>';
 }
 
+function setCoach(id) {
+  state.coach = id;
+  saveLineup();
+  renderTeam();
+  haptic('medium');
+}
+
 function setCaptain(id) {
   state.captain = id;
   saveLineup();
@@ -348,7 +457,10 @@ function setCaptain(id) {
 }
 
 function assign(key, id) {
-  for (const [k, v] of Object.entries(state.lineup)) if (v === id) delete state.lineup[k];
+  const name = state.byId[id].name.trim().toLowerCase();
+  for (const [k, v] of Object.entries(state.lineup)) {
+    if (v === id || state.byId[v]?.name.trim().toLowerCase() === name) delete state.lineup[k];
+  }
   state.lineup[key] = id;
   saveLineup();
   renderTeam();
@@ -442,7 +554,7 @@ function openDetails(id) {
     <div class="section-title">Лучше всего сыгрывается с</div>
     ${best.partners.length ? best.partners.map(({ player: q, combos }) => `
       <div class="partner" data-id="${q.id}">
-        <span class="badge" style="${cardStyle(q)}">${q.ovr}${cardImg(q)}</span>
+        <span class="badge" style="${cardStyle(q)}">${q.ovr}${cardImg(q, true)}</span>
         <span class="info"><b>${flag(q.nation)} ${esc(q.name)}</b><small class="flat">${esc(q.pos)} · ${esc(q.card)} · ${fmtPrice(priceOf(q))}</small></span>
         <span class="chips">${combos.length} комбо</span>
       </div>`).join('') : '<p class="hint">Этот игрок не входит ни в одну комбинацию.</p>'}
@@ -485,15 +597,18 @@ async function loadPrices() {
 }
 
 async function init() {
-  const [players, combos, captains, saved] = await Promise.all([
+  const [players, combos, captains, coaches, saved] = await Promise.all([
     fetch('data/players.json').then(r => r.json()),
     fetch('data/combos.json').then(r => r.json()).catch(() => []),
     fetch('data/captains.json').then(r => r.json()).catch(() => []),
+    fetch('data/coaches.json').then(r => r.json()).catch(() => []),
     loadLineup(),
   ]);
   state.players = players;
   state.combos = combos;
   state.captains = captains;
+  state.coaches = coaches;
+  state.coach = coaches.some(c => c.id === saved.coach) ? saved.coach : null;
   state.captainCards = players.filter(p => captainRuleFor(p, captains));
   state.byId = Object.fromEntries(players.map(p => [p.id, p]));
   const slots = saved.slots || saved; // старый формат — просто слоты
@@ -541,9 +656,23 @@ $('#captain').addEventListener('click', e => {
   if (e.target.closest('#captain-pick, #captain-change')) openPicker('CAPTAIN');
 });
 
+$('#coach').addEventListener('click', e => {
+  if (e.target.closest('#coach-remove')) return setCoach(null);
+  if (e.target.closest('#coach-toggle')) {
+    state.coachOpen = !state.coachOpen;
+    return renderTeam();
+  }
+  if (e.target.closest('#coach-pick, #coach-change')) openPicker('COACH');
+});
+
 $('#picker-search').addEventListener('input', renderPickerList);
 $('#picker-allpos').addEventListener('change', renderPickerList);
 $('#picker-list').addEventListener('click', e => {
+  const coachRow = e.target.closest('[data-coach]');
+  if (coachRow) {
+    setCoach(coachRow.dataset.coach);
+    return closeSheets();
+  }
   const row = e.target.closest('[data-id]');
   if (!row) return;
   if (state.pickerSlot === 'CAPTAIN') setCaptain(Number(row.dataset.id));
@@ -552,6 +681,7 @@ $('#picker-list').addEventListener('click', e => {
 });
 $('#picker-remove').addEventListener('click', () => {
   if (state.pickerSlot === 'CAPTAIN') state.captain = null;
+  else if (state.pickerSlot === 'COACH') state.coach = null;
   else delete state.lineup[state.pickerSlot];
   saveLineup();
   renderTeam();
@@ -584,6 +714,7 @@ $('#clear-lineup').addEventListener('click', () => {
     if (!ok) return;
     state.lineup = {};
     state.captain = null;
+    state.coach = null;
     saveLineup();
     renderTeam();
   };

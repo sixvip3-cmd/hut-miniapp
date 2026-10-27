@@ -5,7 +5,7 @@
 
 ## Как устроено
 - `public/` — само приложение (HTML/CSS/JS, без сборки).
-- `data/players.json`, `data/prices.json`, `data/combos.json`, `data/captains.json` — данные hutdb (картинки карточек грузятся из хранилища hutdb).
+- `data/players.json`, `data/prices.json`, `data/combos.json`, `data/captains.json`, `data/coaches.json` — данные hutdb (картинки карточек грузятся из хранилища hutdb).
 - `scripts/sync-hutdb.js` открывает hutdb.app/chemistry в headless-браузере и сохраняет данные, которые страница загружает сама.
 - `.github/workflows/pages.yml` — каждый час синхронизирует данные и публикует сайт на GitHub Pages.
 

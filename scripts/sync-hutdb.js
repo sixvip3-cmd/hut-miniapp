@@ -6,6 +6,7 @@
 //   data/prices.json   — цены (с нашей историей изменений)
 //   data/combos.json   — line combos (OVR / SAL / AP)
 //   data/captains.json — правила капитанов
+//   data/coaches.json  — тренеры и их комбинации
 //
 // Запуск: node scripts/sync-hutdb.js   (нужен playwright + chromium или PW_CHANNEL=chrome)
 
@@ -104,10 +105,10 @@ async function capture() {
   // PW_CHANNEL=chrome — использовать установленный Google Chrome (есть на раннерах GitHub).
   const browser = await chromium.launch(process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {});
   const page = await browser.newPage();
-  const bodies = { players: [], combos: [], combo_stem_overrides: [], captain_rules: [] };
+  const bodies = { players: [], combos: [], combo_stem_overrides: [], captain_rules: [], coaches: [] };
   const pending = [];
   page.on('response', res => {
-    const m = res.url().match(/\/rest\/v1\/(players|combos|combo_stem_overrides|captain_rules)\?/);
+    const m = res.url().match(/\/rest\/v1\/(players|combos|combo_stem_overrides|captain_rules|coaches)\?/);
     if (!m || res.status() !== 200) return;
     pending.push(res.json().then(rows => { if (Array.isArray(rows)) bodies[m[1]].push(...rows); }).catch(() => {}));
   });
@@ -203,12 +204,33 @@ async function main() {
       cardTypes: (r.card_types?.length ? r.card_types : ['CAPTAINS']).map(upper),
     }));
 
+  // Тренеры: 3 комбинации для нападения (F) и 3 для защиты или вратарей (DG).
+  const coachCombo = cat => c => ({
+    cat,
+    boost: parseBoost(c.boost),
+    reqs: (c.combo_images || []).map(img => resolveStem(stemOf(img), overrides)),
+  });
+  const coaches = raw.coaches
+    .filter(c => c.active !== false)
+    .map(c => ({
+      id: c.id,
+      name: c.name,
+      team: c.team || '',
+      nation: c.nationality || '',
+      card: c.card_type || '',
+      img: (c.image_url || '').replace(/^\//, ''),
+      combos: [...(c.forward_combos || []).map(coachCombo('F')), ...(c.defense_combos || []).map(coachCombo('DG'))],
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  unknown += coaches.flatMap(c => c.combos.flatMap(x => x.reqs)).filter(r => r.type === 'unknown').length;
+
   writeJson('players.json', players);
   if (captains.length) writeJson('captains.json', captains);
+  if (coaches.length) writeJson('coaches.json', coaches);
   writeJson('combos.json', combos);
   writeJson('prices.json', { updatedAt: new Date(now).toISOString(), source: 'hutdb.app', prices });
 
-  console.log(`[hutdb] игроков: ${players.length}, цен: ${Object.keys(prices).length}, комбинаций: ${combos.length}, капитанов: ${captains.length}, нераспознанных требований: ${unknown}`);
+  console.log(`[hutdb] игроков: ${players.length}, цен: ${Object.keys(prices).length}, комбинаций: ${combos.length}, капитанов: ${captains.length}, тренеров: ${coaches.length}, нераспознанных требований: ${unknown}`);
 }
 
 main().catch(err => {

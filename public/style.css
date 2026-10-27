@@ -96,7 +96,7 @@ input, select {
 .market-head { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 8px; }
 .market-head select { width: auto; }
 .mrow { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; background: var(--bg2); border-radius: var(--radius); margin-bottom: 6px; text-align: left; }
-.mrow .badge, .partner .badge { width: 40px; height: 48px; border-radius: 8px; display: grid; place-items: center; font-weight: 800; font-size: 16px; background: linear-gradient(160deg, var(--c1), var(--c2)); flex-shrink: 0; }
+.mrow .badge, .partner .badge { width: 44px; height: 62px; border-radius: 8px; display: grid; place-items: center; font-weight: 800; font-size: 16px; background: linear-gradient(160deg, var(--c1), var(--c2)); flex-shrink: 0; }
 .mrow .info { flex: 1; min-width: 0; }
 .mrow .info b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .mrow .info small { color: var(--hint); }
@@ -177,3 +177,16 @@ input, select {
 .cap-rule { display: block; color: #f5b301 !important; }
 .cap-note { background: rgba(245,179,1,.08); border: 1px solid rgba(245,179,1,.25); border-radius: var(--radius); padding: 10px; font-size: 13px; margin-bottom: 10px; }
 .cap-note .btn-ghost { margin: 6px 0 0; padding: 0; color: #f5b301; font-weight: 700; }
+
+/* Миниатюры: карточка целиком, без обрезки */
+.badge .card-img { object-fit: contain; border-radius: 4px; }
+
+/* Тренер */
+.coach-photo { width: 84px; aspect-ratio: 3 / 4 !important; background: linear-gradient(160deg, #4a3a10, #120e04); }
+.coach-photo .card-img { object-fit: cover; }
+.coach-fallback { font-size: 10px; font-weight: 800; text-transform: uppercase; color: #f5d27a; text-align: center; align-self: center; margin: auto; }
+.coach-thumb { background: linear-gradient(160deg, #4a3a10, #120e04); }
+.coach-thumb .card-img { object-fit: cover; }
+.coach-thumb .coach-fallback { font-size: 7px; }
+.coach-combos { margin-top: -6px; }
+.coach-combos .combo:first-child { border-top: 0; }

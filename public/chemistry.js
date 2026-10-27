@@ -247,3 +247,50 @@ function captainStatus(captain, lineupPlayers, rules) {
     sal: met ? rule.sal : 0,
   };
 }
+
+// ---------- Тренер ----------
+// У тренера свои комбинации: F — для звена нападения, DG — для пары защиты или вратарей.
+// Каждая засчитывается один раз — на первой линии, которая её закрывает.
+
+// Сколько требований комбинации можно закрыть игроками линии (для прогресса).
+function matchedCount(combo, players) {
+  const n = combo.reqs.length;
+  for (let k = n; k > 0; k--) {
+    // все подмножества требований размера k
+    for (let mask = 0; mask < 1 << n; mask++) {
+      let bits = 0;
+      for (let i = 0; i < n; i++) if (mask & (1 << i)) bits++;
+      if (bits !== k) continue;
+      const sub = { reqs: combo.reqs.filter((_, i) => mask & (1 << i)) };
+      if (sub.reqs.length <= players.length && assignCombo(sub, players)) return k;
+    }
+  }
+  return 0;
+}
+
+function coachStatus(coach, lineup, playersById) {
+  const total = emptyBoost();
+  const lineTotals = {};
+  let activeCount = 0;
+  const lines = LINES.map(line => ({
+    line,
+    players: line.slots.map(s => playersById[lineup[`${line.id}-${s}`]]).filter(Boolean),
+  }));
+  const combos = coach.combos.map(combo => {
+    const candidates = lines.filter(({ line }) => (combo.cat === 'F' ? line.cat === 'F' : line.cat !== 'F'));
+    let best = { matched: 0, lineId: null };
+    for (const { line, players } of candidates) {
+      if (players.length >= combo.reqs.length && assignCombo(combo, players)) {
+        activeCount++;
+        for (const t of ['OVR', 'SAL', 'AP']) total[t] += combo.boost[t];
+        const lt = lineTotals[line.id] || (lineTotals[line.id] = emptyBoost());
+        for (const t of ['OVR', 'SAL', 'AP']) lt[t] += combo.boost[t];
+        return { combo, active: true, lineId: line.id, matched: combo.reqs.length };
+      }
+      const m = matchedCount(combo, players);
+      if (m > best.matched) best = { matched: m, lineId: line.id };
+    }
+    return { combo, active: false, ...best };
+  });
+  return { combos, total, lineTotals, activeCount };
+}
