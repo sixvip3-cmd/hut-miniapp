@@ -1,4 +1,6 @@
-node_modules/
-_site/
-.env
 *.png
+.dev.vars
+.env
+.wrangler/
+_site/
+node_modules/

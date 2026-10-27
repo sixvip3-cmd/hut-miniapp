@@ -1,0 +1,101 @@
+name: Deploy & sync hutdb
+
+# Приложение живёт на Cloudflare Workers и открывается только из Telegram.
+# Нужны секреты репозитория: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, BOT_TOKEN.
+# Настройки (Variables): PRICE_STARS, ADMIN_IDS, SUPPORT_CONTACT, BOT_USERNAME.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '7 * * * *' # каждый час: свежие игроки, цены, комбинации
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install --no-audit --no-fund
+
+      # Если синк упал — публикуем прошлые данные.
+      - name: Sync hutdb.app
+        if: github.event_name != 'push'
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          PW_CHANNEL: chrome # Google Chrome уже установлен на раннере
+        run: |
+          node scripts/sync-hutdb.js
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git commit -m "Sync hutdb.app data" || echo "no changes"
+          git push
+
+      - name: Check Cloudflare settings
+        id: cf
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ] || [ -z "$BOT_TOKEN" ]; then
+            echo "::warning::Не заданы секреты CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID / BOT_TOKEN — деплой пропущен"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build
+        if: steps.cf.outputs.ready == 'true'
+        run: node scripts/build-site.js
+
+      # База подписок: создаём один раз, схему применяем при каждом деплое (она идемпотентна).
+      - name: Database
+        if: steps.cf.outputs.ready == 'true'
+        run: |
+          find_db() { npx wrangler d1 list --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const db=JSON.parse(s).find(d=>d.name==="hut-builder");process.stdout.write(db?db.uuid:"")})'; }
+          ID=$(find_db)
+          if [ -z "$ID" ]; then npx wrangler d1 create hut-builder; ID=$(find_db); fi
+          sed -i "s/00000000-0000-0000-0000-000000000000/$ID/" wrangler.toml
+          npx wrangler d1 execute hut-builder --remote --file worker/schema.sql
+
+      - name: Deploy worker
+        if: steps.cf.outputs.ready == 'true'
+        env:
+          PRICE_STARS: ${{ vars.PRICE_STARS }}
+          ADMIN_IDS: ${{ vars.ADMIN_IDS }}
+          SUPPORT_CONTACT: ${{ vars.SUPPORT_CONTACT }}
+          BOT_USERNAME: ${{ vars.BOT_USERNAME }}
+        run: |
+          ARGS=()
+          for v in PRICE_STARS ADMIN_IDS SUPPORT_CONTACT BOT_USERNAME; do
+            [ -n "${!v}" ] && ARGS+=(--var "$v:${!v}")
+          done
+          npx wrangler deploy "${ARGS[@]}" | tee deploy.log
+
+      # Токен бота, вебхук, кнопка меню и команды — при каждом push и ручном запуске.
+      - name: Configure bot
+        if: steps.cf.outputs.ready == 'true' && github.event_name != 'schedule'
+        run: |
+          echo "$BOT_TOKEN" | npx wrangler secret put BOT_TOKEN
+          URL=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)
+          KEY=$(printf 'setup' | openssl dgst -sha256 -hmac "$BOT_TOKEN" | awk '{print $NF}')
+          sleep 5
+          curl -fsS -X POST "$URL/admin/setup" -H "X-Setup-Key: $KEY"
+          echo
+          echo "Мини-апп: $URL/"

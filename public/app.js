@@ -9,6 +9,13 @@ try {
   if (tg?.isVersionAtLeast?.('7.10')) tg.setBottomBarColor('#06080c');
 } catch {}
 
+// Только внутри Telegram и только своей сессией: сервер подставляет id пользователя сессии,
+// а мы сверяем его с пользователем Telegram. Иначе — обратно на загрузчик (проверка подписки).
+const SESSION_UID = document.querySelector('meta[name="session-uid"]')?.content;
+if (SESSION_UID && (!tg?.initData || String(tg.initDataUnsafe?.user?.id) !== SESSION_UID)) {
+  location.replace('/');
+}
+
 // Защита от старой версии в кэше Telegram: если на сервере вышла новая — перезагружаемся.
 const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || '';
 async function ensureFreshVersion() {
@@ -124,10 +131,18 @@ function loadLineup() {
       try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
     };
     if (!hasCloud()) return resolve(fromLocal());
-    tg.CloudStorage.getItem(STORAGE_KEY, (err, value) => {
-      if (err || !value) return resolve(fromLocal());
-      try { resolve(JSON.parse(value)); } catch { resolve(fromLocal()); }
-    });
+    // Если Telegram не ответил быстро — не ждём, берём локальную копию.
+    const timer = setTimeout(() => resolve(fromLocal()), 1500);
+    try {
+      tg.CloudStorage.getItem(STORAGE_KEY, (err, value) => {
+        clearTimeout(timer);
+        if (err || !value) return resolve(fromLocal());
+        try { resolve(JSON.parse(value)); } catch { resolve(fromLocal()); }
+      });
+    } catch {
+      clearTimeout(timer);
+      resolve(fromLocal());
+    }
   });
 }
 

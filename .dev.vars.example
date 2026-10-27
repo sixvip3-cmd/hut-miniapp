@@ -1,0 +1,6 @@
+# Локальные переменные для `wrangler dev` (скопируйте в .dev.vars).
+BOT_TOKEN=123456:your-bot-token
+# Для тестов можно направить вызовы Bot API на мок:
+# TELEGRAM_API_BASE=http://127.0.0.1:8788
+ADMIN_IDS=
+BOT_USERNAME=

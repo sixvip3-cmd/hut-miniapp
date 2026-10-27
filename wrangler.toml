@@ -1,0 +1,25 @@
+# Cloudflare Worker: HUT Builder доступен только из Telegram и только с подпиской за звёзды.
+name = "hut-builder"
+main = "worker/src/index.js"
+compatibility_date = "2026-09-01"
+
+# Приложение и данные (собираются в _site скриптом scripts/build-site.js).
+# run_worker_first: каждый запрос сначала проходит проверку доступа в воркере.
+[assets]
+directory = "./_site"
+binding = "ASSETS"
+run_worker_first = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hut-builder"
+database_id = "00000000-0000-0000-0000-000000000000" # подставляется при деплое
+
+[vars]
+PRICE_STARS = "150"           # цена подписки на 30 дней в звёздах
+PRODUCT_TITLE = "HUT Builder Premium"
+ADMIN_IDS = ""                # Telegram id через запятую: бесплатный доступ и команда /refund
+SUPPORT_CONTACT = ""          # контакт для /paysupport, например @username
+BOT_USERNAME = ""             # username бота без @ — для кнопки «Открыть в Telegram»
+
+# Секрет BOT_TOKEN задаётся через `wrangler secret put BOT_TOKEN` (в CI — из секретов GitHub).

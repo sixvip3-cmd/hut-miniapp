@@ -2,13 +2,18 @@
   "name": "hut-miniapp",
   "version": "0.2.0",
   "private": true,
-  "description": "Telegram Mini App: сборщик состава HUT + маркет (данные hutdb.app)",
+  "description": "Telegram Mini App: сборщик состава HUT + маркет (данные hutdb.app), доступ по подписке за звёзды",
   "scripts": {
-    "start": "node server.js",
-    "sync": "node scripts/sync-hutdb.js"
+    "sync": "node scripts/sync-hutdb.js",
+    "build": "node scripts/build-site.js",
+    "dev": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
   },
   "devDependencies": {
-    "playwright": "1.56.1"
+    "playwright": "1.56.1",
+    "wrangler": "4.149.0"
   },
-  "engines": { "node": ">=18" }
+  "engines": {
+    "node": ">=18"
+  }
 }
