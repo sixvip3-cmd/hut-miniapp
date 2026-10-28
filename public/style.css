@@ -433,3 +433,4 @@ body.drag-mode, body.drag-mode * { -webkit-user-select: none; user-select: none;
 .accent .check.sal input:checked { background: var(--green); }
 .accent .check.ap input:checked { background: var(--purple); }
 .accent .check.ovr input:checked { background: var(--cyan); }
+.best-card small .off { color: #fbbf24; font-weight: 700; }

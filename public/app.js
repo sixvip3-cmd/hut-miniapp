@@ -630,25 +630,38 @@ function computeBestLines(p, line, metric, limit) {
     const key = JSON.stringify(r);
     reqs.set(key, { r, w: (reqs.get(key)?.w || 0) + weightOf(c.boost) });
   }
-  const pools = otherSlots.map(slot => {
-    const scored = [];
-    for (const q of state.players) {
-      if (!slotAccepts(slot, q) || nameOf(q) === nameOf(p)) continue;
-      let sc = 0;
-      for (const { r, w } of reqs.values()) if (reqMatches(r, q)) sc += w;
-      if (sc) scored.push({ q, sc });
+  // Кандидаты — все игроки той же линии (любой нападающий в тройку, любой защитник в пару),
+  // а не только родной позиции: на чужом месте игрок всё равно закрывает комбинации.
+  const scored = [];
+  for (const q of state.players) {
+    if (playerCat(q) !== line.cat || nameOf(q) === nameOf(p)) continue;
+    let sc = 0;
+    for (const { r, w } of reqs.values()) if (reqMatches(r, q)) sc += w;
+    if (sc) scored.push({ q, sc });
+  }
+  scored.sort((a, b) => b.sc - a.sc || b.q.ovr - a.q.ovr || priceOf(b.q) - priceOf(a.q));
+  const pick = new Map(scored.slice(0, 35).map(x => [x.q.id, x.q]));
+  for (const { r } of reqs.values()) {
+    let n = 0;
+    for (const x of scored) {
+      if (n >= 3) break;
+      if (reqMatches(r, x.q)) { pick.set(x.q.id, x.q); n++; }
     }
-    scored.sort((a, b) => b.sc - a.sc || b.q.ovr - a.q.ovr || priceOf(b.q) - priceOf(a.q));
-    const pick = new Map(scored.slice(0, 25).map(x => [x.q.id, x.q]));
-    for (const { r } of reqs.values()) {
-      let n = 0;
-      for (const x of scored) {
-        if (n >= 2) break;
-        if (reqMatches(r, x.q)) { pick.set(x.q.id, x.q); n++; }
-      }
+  }
+  const pool = [...pick.values()];
+
+  // Расстановка по местам: игрок остаётся на своей позиции, остальных ставим так,
+  // чтобы как можно больше играли на родной позиции.
+  const perms = otherSlots.length === 2 ? [[0, 1], [1, 0]] : [[0]];
+  const placeMates = mates => {
+    let best = null;
+    for (const perm of perms) {
+      const slots = perm.map(i => otherSlots[i]);
+      const off = mates.filter((q, i) => !slotAccepts(slots[i], q)).length;
+      if (!best || off < best.off) best = { slots, off };
     }
-    return [...pick.values()];
-  });
+    return best;
+  };
 
   const weigh = METRIC_W[metric];
   const results = [];
@@ -664,16 +677,18 @@ function computeBestLines(p, line, metric, limit) {
       total.OVR += c.boost.OVR; total.SAL += c.boost.SAL; total.AP += c.boost.AP;
     }
     if (!weightOf(total)) return;
+    const place = placeMates(mates);
     results.push({
-      players, slots: [pSlot, ...otherSlots], total, active,
+      players, slots: [pSlot, ...place.slots], off: place.off, total, active,
       score: weigh(total), ovr: players.reduce((t, q) => t + q.ovr, 0),
       salary: players.reduce((t, q) => t + q.salary, 0),
       price: players.reduce((t, q) => t + priceOf(q), 0),
     });
   };
-  if (pools.length === 1) pools[0].forEach(q => consider([q]));
-  else for (const a of pools[0]) for (const b of pools[1]) consider([a, b]);
-  results.sort((x, y) => y.score - x.score || y.ovr - x.ovr || x.salary - y.salary);
+  if (otherSlots.length === 1) pool.forEach(q => consider([q]));
+  else for (let i = 0; i < pool.length; i++) for (let j = i + 1; j < pool.length; j++) consider([pool[i], pool[j]]);
+  // При равных бонусах выше — варианты, где все играют на своих позициях.
+  results.sort((x, y) => y.score - x.score || x.off - y.off || y.ovr - x.ovr || x.salary - y.salary);
   return { line, variants: results.slice(0, limit) };
 }
 
@@ -712,7 +727,7 @@ function bestLinesHtml(p, slotKey, metric) {
           <div class="best-card ${q.id === p.id ? 'me' : ''}" data-id="${q.id}">
             <span class="card" style="${cardStyle(q)}">${cardHtml(q)}</span>
             <b>${esc(surname(q.name))}</b>
-            <small>${slot === 'STARTER' ? 'Основной' : slot === 'BACKUP' ? 'Запасной' : slot} · ${fmtPrice(priceOf(q))}</small>
+            <small>${slot === 'STARTER' ? 'Основной' : slot === 'BACKUP' ? 'Запасной' : slotAccepts(slot, q) ? slot : `<span class="off">${q.pos} → ${slot}</span>`} · ${fmtPrice(priceOf(q))}</small>
           </div>`).join('')}
       </div>
       <details class="best-combos"><summary>Комбинации: ${v.active.length}</summary>
