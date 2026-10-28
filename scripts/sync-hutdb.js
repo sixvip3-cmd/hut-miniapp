@@ -101,6 +101,24 @@ function parseBoost(text) {
 
 const CATS = { Forwards: 'F', Defense: 'D', Goalies: 'G' };
 
+// Порядок характеристик в data/stats.json (S — полевые, G — вратари): [группа, [атрибуты]].
+const STAT_ORDER = {
+  S: [
+    ['skating', ['speed', 'acceleration', 'agility', 'balance', 'endurance']],
+    ['shooting', ['wrist_shot_power', 'wrist_shot_accuracy', 'slap_shot_power', 'slap_shot_accuracy']],
+    ['hands', ['deking', 'passing', 'hand_eye', 'puck_control', 'offensive_awareness']],
+    ['checking', ['strength', 'body_checking', 'aggression', 'durability', 'fighting_skill']],
+    ['defense', ['defensive_awareness', 'stick_checking', 'shot_blocking', 'face_offs', 'discipline']],
+  ],
+  G: [
+    ['quickness', ['speed', 'agility', 'vision', 'endurance']],
+    ['position', ['positioning', 'shot_recovery', '5_hole', 'breakaway']],
+    ['high', ['glove_high', 'stick_high']],
+    ['low', ['glove_low', 'stick_low', 'poke_check', 'passing']],
+    ['rebounds', ['rebound_control', 'aggression', 'durability']],
+  ],
+};
+
 // ---------- Загрузка ----------
 async function capture() {
   const { chromium } = require('playwright');
@@ -241,7 +259,16 @@ async function main() {
   // Защита: если много требований не распознано — комбинации не перезаписываем.
   if (unknown > MAX_UNKNOWN) throw new Error(`не распознано ${unknown} требований комбинаций — данные не тронуты`);
 
+  // Характеристики — отдельным файлом, компактно: id → значения в порядке STAT_ORDER.
+  const stats = { order: STAT_ORDER, players: {} };
+  for (const r of byId.values()) {
+    if (!r.stats) continue;
+    const order = STAT_ORDER[r.position === 'G' ? 'G' : 'S'];
+    stats.players[r.id] = order.flatMap(([g, attrs]) => attrs.map(a => r.stats[g]?.[a] ?? null));
+  }
+
   writeJson('players.json', players);
+  writeJson('stats.json', stats);
   if (captains.length) writeJson('captains.json', captains);
   if (coaches.length) writeJson('coaches.json', coaches);
   writeJson('combos.json', combos);

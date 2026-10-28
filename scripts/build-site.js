@@ -70,3 +70,19 @@ const digest = {
 };
 fs.writeFileSync(path.join(OUT, 'data', 'digest.json'), JSON.stringify(digest));
 console.log(`поиск: ${Object.keys(buckets).length} файлов; дайджест: новых ${digest.newCount}, рост ${digest.up.length}, падение ${digest.down.length}`);
+
+// ---------- Характеристики игроков: маленькими файлами по остатку id ----------
+// Приложение грузит только нужный файл (~10 КБ) при открытии карточки игрока.
+const STAT_CHUNKS = 64;
+const statsFile = path.join(DATA, 'stats.json');
+if (fs.existsSync(statsFile)) {
+  const { order, players: values } = JSON.parse(fs.readFileSync(statsFile, 'utf8'));
+  const dir = path.join(OUT, 'data', 'stats');
+  fs.mkdirSync(dir, { recursive: true });
+  const chunks = Array.from({ length: STAT_CHUNKS }, () => ({}));
+  for (const [id, v] of Object.entries(values)) chunks[Number(id) % STAT_CHUNKS][id] = v;
+  chunks.forEach((c, i) => fs.writeFileSync(path.join(dir, `${i}.json`), JSON.stringify(c)));
+  fs.writeFileSync(path.join(dir, 'order.json'), JSON.stringify({ chunks: STAT_CHUNKS, order }));
+  fs.rmSync(path.join(OUT, 'data', 'stats.json'), { force: true });
+  console.log(`характеристики: ${Object.keys(values).length} игроков в ${STAT_CHUNKS} файлах`);
+}

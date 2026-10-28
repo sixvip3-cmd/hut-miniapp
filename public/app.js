@@ -220,9 +220,9 @@ function bonusChips(t) {
 
 function renderLineup(sum, cap) {
   $('#lineup').innerHTML = LINES.map(line => `
-    <div class="line">
+    <div class="line" data-line="${line.id}">
       <div class="line-head">
-        <span class="line-title">${line.label}</span>
+        <span class="line-title"><span class="grip" aria-hidden="true">⋮⋮</span>${line.label}</span>
         <span class="chips">${bonusChips(sum.lines[line.id].total)}</span>
       </div>
       <div class="slots n${line.slots.length}">
@@ -435,10 +435,16 @@ function extraInfo(p) {
   return `<small class="cap-rule">${rule.needed} игроков из: ${esc(what)} → ${captainBonusText(rule)}</small>`;
 }
 
-function playerRow(p, extra = '') {
-  return `<button class="mrow" data-id="${p.id}">
+function playerRow(p, extra = '', syn = null, cls = '') {
+  const synHtml = syn?.partial
+    ? `<small class="syn">почти: ${['OVR', 'SAL', 'AP'].filter(t => syn.partial.boost[t]).map(t => `<em class="${t.toLowerCase()}">${boostText(t, syn.partial.boost[t])}</em>`).join(' ')} — нужен ещё ${esc(reqLabel(syn.partial.need))}</small>`
+    : syn && weightOf(syn.delta) > 0
+    ? `<small class="syn">${['OVR', 'SAL', 'AP'].filter(t => syn.delta[t]).map(t => `<em class="${t.toLowerCase()}">${boostText(t, syn.delta[t])}</em>`).join(' ')}${
+      syn.partners.length ? ` · с ${esc(syn.partners.map(surname).join(', '))}` : ''}</small>`
+    : '';
+  return `<button class="mrow ${cls}" data-id="${p.id}">
     <span class="badge" style="${cardStyle(p)}">${p.ovr}${cardImg(p, true)}</span>
-    <span class="info"><b>${flag(p.nation)} ${esc(p.name)}</b><small>${esc(p.pos)} · ${esc(p.card)} · ${esc(p.team)} · $${p.salary.toFixed(1)}M</small>${extraInfo(p)}</span>
+    <span class="info"><b>${flag(p.nation)} ${esc(p.name)}</b><small>${esc(p.pos)} · ${esc(p.card)} · ${esc(p.team)} · $${p.salary.toFixed(1)}M</small>${extraInfo(p)}${synHtml}</span>
     <span class="price">${fmtPrice(priceOf(p))}${extra}</span>
   </button>`;
 }
@@ -476,6 +482,96 @@ function renderCoachList() {
     </button>`).join('') || '<p class="hint">Никого не нашли</p>';
 }
 
+// ---------- Сыгранность кандидата со звеном ----------
+const weightOf = b => b.OVR * 3 + b.SAL + b.AP; // OVR ценнее всего
+
+// Комбинации для звена: обычные + комбинации тренера (кроме уже сработавших в другом звене).
+function combosForLine(line) {
+  const coach = coachById(state.coach);
+  if (!coach) return state.combos;
+  const usedElsewhere = new Set((state.coachState?.combos || []).filter(c => c.active && c.lineId !== line.id).map(c => c.combo));
+  const own = coach.combos
+    .filter(c => (c.cat === 'F' ? line.cat === 'F' : line.cat !== 'F') && !usedElsewhere.has(c))
+    .map(c => ({ ...c, cat: line.cat, coach: true }));
+  return [...state.combos, ...own];
+}
+
+// Что даст кандидат звену: прибавка бонусов и с кем из звена он закрывает комбинации.
+function synergyFor(cand, line, others, base, combos = combosForLine(line)) {
+  const chem = lineChemistry(line, [...others, cand], combos);
+  const delta = { OVR: chem.total.OVR - base.OVR, SAL: chem.total.SAL - base.SAL, AP: chem.total.AP - base.AP };
+  const partners = new Set();
+  for (const a of chem.active) {
+    if (!a.players.some(q => q.id === cand.id)) continue;
+    a.players.forEach(q => q.id !== cand.id && partners.add(q.name));
+  }
+  return { delta, partners: [...partners] };
+}
+
+// Лучшие кандидаты для слота: ищем комбинации, которым звену не хватает одного игрока,
+// и игроков подходящей позиции, закрывающих это требование.
+function bestForSlot(key, fits) {
+  const [lineId, slot] = key.split('-');
+  const line = LINES.find(l => l.id === lineId);
+  const others = line.slots.filter(s => s !== slot).map(s => state.byId[state.lineup[`${lineId}-${s}`]]).filter(Boolean);
+  const combos = combosForLine(line);
+  if (!others.length) return { line, others, combos, base: { OVR: 0, SAL: 0, AP: 0 }, top: [] };
+  const base = lineChemistry(line, others, combos).total;
+  const wanted = []; // кандидат закрывает комбинацию сразу
+  const almost = []; // после кандидата останется добрать одного
+  for (const c of combos) {
+    if (c.cat !== line.cat || c.reqs.length > line.slots.length || assignCombo(c, others)) continue;
+    const n = c.reqs.length;
+    let found = false;
+    for (let i = 0; i < n && !found; i++) {
+      const rest = { reqs: c.reqs.filter((_, k) => k !== i) };
+      if (rest.reqs.length <= others.length && assignCombo(rest, others)) {
+        wanted.push({ req: c.reqs[i], w: weightOf(c.boost) });
+        found = true;
+      }
+    }
+    if (found || n < 2 || others.length + 2 > line.slots.length + 1) continue;
+    for (let i = 0; i < n && !found; i++) {
+      for (let j = 0; j < n && !found; j++) {
+        if (i === j) continue;
+        const rest = { reqs: c.reqs.filter((_, k) => k !== i && k !== j) };
+        if (!rest.reqs.length || assignCombo(rest, others)) {
+          almost.push({ req: c.reqs[i], need: c.reqs[j], combo: c, w: weightOf(c.boost) });
+          found = true;
+        }
+      }
+    }
+  }
+  const scored = [];
+  for (const p of state.players) {
+    if (!fits(p)) continue;
+    let score = 0;
+    for (const w of wanted) if (reqMatches(w.req, p)) score += w.w;
+    if (score) scored.push({ p, score });
+  }
+  scored.sort((a, b) => b.score - a.score || b.p.ovr - a.p.ovr);
+  const top = scored.slice(0, 40)
+    .map(({ p }) => ({ p, syn: synergyFor(p, line, others, base, combos) }))
+    .filter(x => weightOf(x.syn.delta) > 0)
+    .sort((a, b) => weightOf(b.syn.delta) - weightOf(a.syn.delta) || b.p.ovr - a.p.ovr || priceOf(b.p) - priceOf(a.p))
+    .slice(0, 8);
+
+  // Если закрыть комбинацию одним игроком нельзя — подсказываем «почти комбо».
+  if (top.length < 4 && almost.length) {
+    almost.sort((a, b) => b.w - a.w);
+    const seen = new Set(top.map(x => x.p.id));
+    for (const a of almost) {
+      const cand = state.players.filter(p => fits(p) && !seen.has(p.id) && reqMatches(a.req, p))
+        .sort((x, y) => y.ovr - x.ovr || priceOf(y) - priceOf(x))[0];
+      if (!cand) continue;
+      seen.add(cand.id);
+      top.push({ p: cand, syn: { delta: { OVR: 0, SAL: 0, AP: 0 }, partners: [], partial: { boost: a.combo.boost, need: a.need } } });
+      if (top.length >= 6) break;
+    }
+  }
+  return { line, others, combos, base, top };
+}
+
 function renderPickerList() {
   if (state.pickerSlot === 'COACH') return renderCoachList();
   const isCaptain = state.pickerSlot === 'CAPTAIN';
@@ -494,9 +590,28 @@ function renderPickerList() {
   const mark = p => isCaptain
     ? (p.id === state.captain ? '<small class="flat">капитан</small>' : '')
     : (inLineup(p.id) ? '<small class="flat">в составе</small>' : '');
-  $('#picker-list').innerHTML = list.length
-    ? list.map(p => playerRow(p, mark(p))).join('')
+  if (isCaptain) {
+    $('#picker-list').innerHTML = list.length ? list.map(p => playerRow(p, mark(p))).join('') : '<p class="hint">Никого не нашли</p>';
+    return;
+  }
+
+  // Подсказки по сыгранности со звеном (считаем один раз, пока открыто меню выбора).
+  const memo = `${state.pickerSlot}|${allPos}|${JSON.stringify(state.lineup)}`;
+  if (state.pickerBest?.memo !== memo) state.pickerBest = { memo, data: bestForSlot(state.pickerSlot, fits) };
+  const best = state.pickerBest.data;
+  const syn = p => synergyFor(p, best.line, best.others, best.base, best.combos);
+  let html = '';
+  if (!q && best.top.length) {
+    html += `<div class="picker-section">🔥 Лучше всего для этого звена</div>
+      ${best.top.map(({ p, syn: s }) => playerRow(p, mark(p), s, 'suggest')).join('')}
+      <div class="picker-section">Все игроки</div>`;
+  } else if (!q && !best.others.length) {
+    html += '<p class="hint">Поставьте в звено хотя бы одного игрока — подскажем, кто сыграет с ним лучше.</p>';
+  }
+  html += list.length
+    ? list.map(p => playerRow(p, mark(p), best.others.length ? syn(p) : null)).join('')
     : '<p class="hint">Никого не нашли</p>';
+  $('#picker-list').innerHTML = html;
 }
 
 function setCoach(id) {
@@ -580,13 +695,84 @@ function boostChips(b) {
     `<span class="chip ${t === 'SAL' ? 'salary' : t.toLowerCase()} on">${boostText(t, b[t])}</span>`).join('');
 }
 
-function openDetails(id) {
+// ---------- Характеристики игрока (грузятся маленькими файлами по требованию) ----------
+const STAT_GROUPS = {
+  skating: 'Катание', shooting: 'Бросок', hands: 'Владение', checking: 'Силовая', defense: 'Защита',
+  quickness: 'Реакция', position: 'Позиционка', high: 'Верх', low: 'Низ', rebounds: 'Отскоки',
+};
+const STAT_LABELS = {
+  speed: 'Скорость', acceleration: 'Ускорение', agility: 'Ловкость', balance: 'Баланс', endurance: 'Выносливость',
+  wrist_shot_power: 'Сила кистевого', wrist_shot_accuracy: 'Точность кистевого', slap_shot_power: 'Сила щелчка', slap_shot_accuracy: 'Точность щелчка',
+  deking: 'Обводка', passing: 'Пас', hand_eye: 'Реакция рук', puck_control: 'Контроль шайбы', offensive_awareness: 'Атакующее чутьё',
+  strength: 'Сила', body_checking: 'Силовой приём', aggression: 'Агрессия', durability: 'Прочность', fighting_skill: 'Драка',
+  defensive_awareness: 'Чтение игры в обороне', stick_checking: 'Отбор клюшкой', shot_blocking: 'Блок бросков', face_offs: 'Вбрасывания', discipline: 'Дисциплина',
+  vision: 'Видение', positioning: 'Позиция', shot_recovery: 'Восстановление', '5_hole': 'Пятая дыра', breakaway: 'Выход 1 на 1',
+  glove_high: 'Ловушка верх', stick_high: 'Блин верх', glove_low: 'Ловушка низ', stick_low: 'Клюшка низ', poke_check: 'Выбивание',
+  rebound_control: 'Контроль отскока',
+};
+let statsMeta = null;
+const statsChunks = {};
+
+async function loadStats(p) {
+  try {
+    statsMeta ||= await (await fetch('data/stats/order.json')).json();
+    const n = p.id % statsMeta.chunks;
+    statsChunks[n] ||= await (await fetch(`data/stats/${n}.json`)).json();
+    const values = statsChunks[n][p.id];
+    if (!values) return null;
+    let i = 0;
+    return statsMeta.order[p.pos === 'G' ? 'G' : 'S'].map(([group, attrs]) => {
+      const rows = attrs.map(a => ({ key: a, label: STAT_LABELS[a] || a, value: values[i++] })).filter(r => r.value != null);
+      const avg = rows.length ? Math.round(rows.reduce((t, r) => t + r.value, 0) / rows.length) : 0;
+      return { group, label: STAT_GROUPS[group] || group, avg, rows };
+    });
+  } catch {
+    return null;
+  }
+}
+
+const statTone = v => (v >= 90 ? 'elite' : v >= 85 ? 'high' : v >= 78 ? 'mid' : 'low');
+
+function statsHtml(groups) {
+  if (!groups) return '<p class="hint">Характеристики недоступны.</p>';
+  return `<div class="stat-tiles">${groups.map(g => `
+      <div class="stat-tile ${statTone(g.avg)}"><b>${g.avg}</b><span>${esc(g.label)}</span></div>`).join('')}
+    </div>
+    <div class="stat-groups">${groups.map(g => `
+      <div class="stat-group"><div class="stat-group-title">${esc(g.label)}</div>
+        ${g.rows.map(r => `<div class="stat-row"><span>${esc(r.label)}</span>
+          <i class="stat-bar"><i class="${statTone(r.value)}" style="width:${Math.max(4, (r.value - 40) / 59 * 100)}%"></i></i><b>${r.value}</b></div>`).join('')}
+      </div>`).join('')}
+    </div>`;
+}
+
+// Комбинации линии, в которых участвует игрок.
+function lineCombosHtml(p, slotKey) {
+  const lineId = slotKey.split('-')[0];
+  const chem = state.lastSum?.lines[lineId];
+  const mine = (chem?.active || []).filter(a => a.players.some(q => q.id === p.id));
+  const coach = (state.coachState?.combos || []).filter(c => c.active && c.lineId === lineId);
+  if (!mine.length && !coach.length) return '<p class="hint">В этом звене игрок пока не закрывает ни одной комбинации — смотрите, с кем он сыграет лучше, ниже.</p>';
+  return mine.map(a => `
+    <div class="combo on">
+      <span class="chips">${boostChips(a.combo.boost)}</span>
+      <span class="reqs">${a.combo.reqs.map((r, i) => `<span class="req ${a.players[i].id === p.id ? 'ok me' : 'ok'}">${esc(reqLabel(r))}<small>${esc(surname(a.players[i].name))}</small></span>`).join('')}</span>
+    </div>`).join('') + coach.map(c => `
+    <div class="combo on">
+      <span class="chips">${boostChips(c.combo.boost)}</span>
+      <span class="reqs"><span class="req ok">Тренер<small>${esc(reqsText(c.combo.reqs))}</small></span></span>
+    </div>`).join('');
+}
+
+function openDetails(id, slotKey = null) {
   const p = state.byId[id];
   if (!p) return;
   const pr = state.prices.prices[id];
   const best = bestCombosFor(p, state.players, state.combos, { priceOf });
+  const lineLabel = slotKey && `${LINE_LABELS[slotKey.split('-')[0]]} · ${slotOf(slotKey)}`;
   $('#details-title').textContent = p.name;
   $('#details-content').innerHTML = `
+    ${lineLabel ? `<div class="slot-tag">${esc(lineLabel)}${p.id === state.captain ? ' · <b>Капитан</b>' : ''}</div>` : ''}
     <div class="detail-top">
       <div class="card" style="${cardStyle(p)}">${cardHtml(p)}</div>
       <div class="kv">
@@ -605,9 +791,16 @@ function openDetails(id) {
       return `<div class="cap-note"><b>Капитан:</b> ${rule.needed} игроков из ${esc(groups)} → ${captainBonusText(rule)}
         <button class="btn-ghost" id="details-captain">${state.captain === id ? 'Уже капитан' : 'Сделать капитаном'}</button></div>`;
     })() : ''}
-    ${p.abilities.length ? `<div class="chips" style="margin-bottom:8px">${p.abilities.map(([n, ap]) => `<span class="chip">${esc(n.replace(/_/g, ' '))} · ${ap} AP</span>`).join('')}</div>` : ''}
-    <div class="section-title">История цены</div>
-    ${sparkline(pr?.history)}
+    ${slotKey ? `<div class="player-actions">
+      <button class="btn-primary" data-act="replace">🔄 Заменить игрока</button>
+      <button class="btn-ghost-sm" data-act="remove">Убрать</button>
+    </div>
+    <p class="hint drag-hint">Совет: зажмите карточку в составе, чтобы перетащить игрока в другое звено, или заголовок звена — чтобы поменять звенья местами.</p>
+    <div class="section-title">Сыгранность в звене</div>
+    ${lineCombosHtml(p, slotKey)}` : ''}
+    <div class="section-title">Характеристики</div>
+    <div id="stats-box"><p class="hint">Загружаю…</p></div>
+    ${p.abilities.length ? `<div class="section-title">Способности</div><div class="chips" style="margin-bottom:8px">${p.abilities.map(([n, ap]) => `<span class="chip">${esc(n.replace(/_/g, ' '))} · ${ap} AP</span>`).join('')}</div>` : ''}
     <div class="section-title">Лучше всего сыгрывается с</div>
     ${best.partners.length ? best.partners.map(({ player: q, combos }) => `
       <div class="partner" data-id="${q.id}">
@@ -621,14 +814,31 @@ function openDetails(id) {
           <span class="chips">${boostChips(combo.boost)}</span>
           <span class="reqs">${options.map(o => `<span class="req">${esc(reqLabel(o.req))}<small>${esc(o.candidates.slice(0, 2).map(c => surname(c.name)).join(', '))}${o.candidates.length > 2 ? '…' : ''}</small></span>`).join('')}</span>
         </div>`).join('')}` : ''}
-    <button class="btn-primary" id="details-add">${inLineup(id) ? 'Уже в составе' : 'Добавить в состав'}</button>`;
+    <div class="section-title">История цены</div>
+    ${sparkline(pr?.history)}
+    ${slotKey ? '' : `<button class="btn-primary" id="details-add">${inLineup(id) ? 'Уже в составе' : 'Добавить в состав'}</button>`}`;
+  loadStats(p).then(groups => {
+    if ($('#details-title').textContent === p.name && $('#stats-box')) $('#stats-box').innerHTML = statsHtml(groups);
+  });
+  $('#details-content').querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
+    if (b.dataset.act === 'replace') {
+      closeSheets();
+      openPicker(slotKey);
+    } else if (b.dataset.act === 'remove') {
+      delete state.lineup[slotKey];
+      saveLineup();
+      renderTeam();
+      closeSheets();
+      toast(`${p.name} убран из состава`);
+    }
+  });
   const capBtn = $('#details-captain');
   if (capBtn) capBtn.onclick = () => {
     setCaptain(id);
     closeSheets();
     toast(`${p.name} — капитан`);
   };
-  $('#details-add').onclick = () => {
+  if ($('#details-add')) $('#details-add').onclick = () => {
     if (inLineup(id)) return;
     const key = firstFreeSlotFor(p);
     if (!key) return toast('Нет свободного слота для этой позиции');
@@ -705,9 +915,14 @@ $('#chem-type').addEventListener('click', e => {
 });
 
 $('#lineup').addEventListener('click', e => {
+  if (drag.suppressClick) return;
   const card = e.target.closest('[data-slot]');
-  if (card) openPicker(card.dataset.slot);
+  if (!card) return;
+  const id = state.lineup[card.dataset.slot];
+  if (id) openDetails(id, card.dataset.slot);
+  else openPicker(card.dataset.slot);
 });
+$('#lineup').addEventListener('contextmenu', e => e.preventDefault());
 
 $('#staff').addEventListener('click', e => {
   const tile = e.target.closest('[data-staff]');
@@ -936,5 +1151,157 @@ async function shareLineup() {
 
 $('#share-lineup').addEventListener('click', shareLineup);
 $('#invite').addEventListener('click', invite);
+
+// ---------- Перетаскивание: долгое нажатие на карточку (обмен игроков) или заголовок звена (обмен звеньями) ----------
+const HOLD_MS = 320;
+const drag = { timer: null, src: null, active: false, ghost: null, target: null, x: 0, y: 0, sx: 0, sy: 0, raf: 0, suppressClick: false };
+
+const pointOf = e => (e.touches?.[0] || e.changedTouches?.[0] || e);
+const isGoalieSlot = key => key.startsWith('G-');
+
+function dragSource(target) {
+  const card = target.closest('#lineup .card[data-slot]');
+  if (card && state.lineup[card.dataset.slot]) return { kind: 'card', key: card.dataset.slot, el: card };
+  const head = target.closest('#lineup .line-head');
+  if (head) {
+    const line = head.closest('.line');
+    if (line.dataset.line !== 'G') return { kind: 'line', key: line.dataset.line, el: line };
+  }
+  return null;
+}
+
+function dropTarget(x, y) {
+  const el = document.elementFromPoint(x, y);
+  if (!el) return null;
+  if (drag.src.kind === 'card') {
+    const card = el.closest('#lineup .card[data-slot]');
+    if (!card || card.dataset.slot === drag.src.key) return null;
+    // Вратарь — только в слоты вратарей, полевые — только в поле.
+    if (isGoalieSlot(card.dataset.slot) !== isGoalieSlot(drag.src.key)) return { el: card, key: card.dataset.slot, bad: true };
+    return { el: card, key: card.dataset.slot };
+  }
+  const line = el.closest('#lineup .line[data-line]');
+  if (!line || line.dataset.line === drag.src.key) return null;
+  const a = LINES.find(l => l.id === drag.src.key), b = LINES.find(l => l.id === line.dataset.line);
+  return { el: line, key: line.dataset.line, bad: a.cat !== b.cat };
+}
+
+function startHold(e) {
+  if (drag.active || $('#lineup').hidden) return;
+  const src = dragSource(e.target);
+  if (!src) return;
+  const pt = pointOf(e);
+  drag.src = src;
+  drag.sx = drag.x = pt.clientX;
+  drag.sy = drag.y = pt.clientY;
+  clearTimeout(drag.timer);
+  drag.timer = setTimeout(beginDrag, HOLD_MS);
+}
+
+function beginDrag() {
+  const { el, kind } = drag.src;
+  drag.active = true;
+  haptic('medium');
+  try { if (tg?.isVersionAtLeast?.('7.7')) tg.disableVerticalSwipes(); } catch {}
+  const r = el.getBoundingClientRect();
+  const ghost = el.cloneNode(true);
+  ghost.classList.add('drag-ghost', kind === 'line' ? 'drag-ghost-line' : 'drag-ghost-card');
+  ghost.style.width = `${r.width}px`;
+  ghost.style.height = `${r.height}px`;
+  drag.offX = drag.x - r.left;
+  drag.offY = drag.y - r.top;
+  document.body.appendChild(ghost);
+  drag.ghost = ghost;
+  el.classList.add('drag-source');
+  document.body.classList.add('drag-mode');
+  moveGhost();
+  autoScroll();
+}
+
+function moveGhost() {
+  if (!drag.ghost) return;
+  drag.ghost.style.transform = `translate(${drag.x - drag.offX}px, ${drag.y - drag.offY}px) scale(${drag.src.kind === 'line' ? 0.92 : 1.08})`;
+  const t = dropTarget(drag.x, drag.y);
+  if (drag.target?.el !== t?.el) {
+    drag.target?.el.classList.remove('drop-ok', 'drop-bad');
+    if (t) {
+      t.el.classList.add(t.bad ? 'drop-bad' : 'drop-ok');
+      if (!t.bad) haptic('light');
+    }
+  }
+  drag.target = t;
+}
+
+// Автопрокрутка у краёв экрана, чтобы дотащить игрока до любого звена.
+function autoScroll() {
+  if (!drag.active) return;
+  const edge = 90, h = window.innerHeight;
+  const dy = drag.y < edge ? -Math.ceil((edge - drag.y) / 6) : drag.y > h - edge - 70 ? Math.ceil((drag.y - (h - edge - 70)) / 6) : 0;
+  if (dy) {
+    window.scrollBy(0, dy);
+    moveGhost();
+  }
+  drag.raf = requestAnimationFrame(autoScroll);
+}
+
+function onMove(e) {
+  const pt = pointOf(e);
+  if (!drag.active) {
+    if (drag.timer && Math.hypot(pt.clientX - drag.sx, pt.clientY - drag.sy) > 10) {
+      clearTimeout(drag.timer);
+      drag.timer = null;
+    }
+    return;
+  }
+  if (e.cancelable) e.preventDefault(); // во время перетаскивания страница не прокручивается пальцем
+  drag.x = pt.clientX;
+  drag.y = pt.clientY;
+  moveGhost();
+}
+
+function swapSlots(a, b) {
+  const va = state.lineup[a], vb = state.lineup[b];
+  if (vb) state.lineup[a] = vb; else delete state.lineup[a];
+  if (va) state.lineup[b] = va; else delete state.lineup[b];
+}
+
+function onEnd() {
+  clearTimeout(drag.timer);
+  drag.timer = null;
+  if (!drag.active) return;
+  cancelAnimationFrame(drag.raf);
+  const { src, target } = drag;
+  drag.ghost?.remove();
+  src.el.classList.remove('drag-source');
+  target?.el.classList.remove('drop-ok', 'drop-bad');
+  document.body.classList.remove('drag-mode');
+  try { if (tg?.isVersionAtLeast?.('7.7')) tg.enableVerticalSwipes(); } catch {}
+  Object.assign(drag, { active: false, ghost: null, target: null, suppressClick: true });
+  setTimeout(() => (drag.suppressClick = false), 50);
+
+  if (!target) return;
+  if (target.bad) return toast(src.kind === 'card' ? 'Вратаря можно поставить только к вратарям' : 'Звенья нападения меняются со звеньями нападения, пары защиты — с парами');
+  if (src.kind === 'card') {
+    const moved = state.byId[state.lineup[src.key]];
+    const other = state.byId[state.lineup[target.key]];
+    swapSlots(src.key, target.key);
+    toast(other ? `${surname(moved.name)} ⇄ ${surname(other.name)}` : `${surname(moved.name)} → ${LINE_LABELS[target.key.split('-')[0]]}, ${slotOf(target.key)}`);
+  } else {
+    const line = LINES.find(l => l.id === src.key);
+    line.slots.forEach(s => swapSlots(`${src.key}-${s}`, `${target.key}-${s}`));
+    toast(`${LINE_LABELS[src.key]} ⇄ ${LINE_LABELS[target.key]}`);
+  }
+  haptic('medium');
+  saveLineup();
+  renderTeam();
+}
+
+$('#lineup').addEventListener('touchstart', startHold, { passive: true });
+$('#lineup').addEventListener('mousedown', e => e.button === 0 && startHold(e));
+document.addEventListener('touchmove', onMove, { passive: false });
+document.addEventListener('mousemove', onMove);
+document.addEventListener('touchend', onEnd);
+document.addEventListener('touchcancel', onEnd);
+document.addEventListener('mouseup', onEnd);
 
 init();
