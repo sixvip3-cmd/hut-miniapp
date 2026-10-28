@@ -839,6 +839,104 @@ function renderMarket() {
     : 'Цены ещё не загружены';
 }
 
+// ---------- Fantasy Hockey: +1 OVR за каждый гол в реальном матче НХЛ ----------
+const FANTASY_CARD = 'Fantasy Hockey';
+const WEEKDAYS = ['вс', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб'];
+
+function fantasyGameTime(next) {
+  if (!next) return '';
+  if (next.live || (next.t * 1000 <= Date.now() && Date.now() - next.t * 1000 < 4 * 3600e3)) return `<span class="fnext live">● идёт матч с ${esc(next.opp)}</span>`;
+  const d = new Date(next.t * 1000);
+  const today = new Date().toDateString() === d.toDateString();
+  const time = d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  return `<span class="fnext">${next.home ? 'vs' : '@'} ${esc(next.opp)} · ${today ? 'сегодня' : WEEKDAYS[d.getDay()]} ${time}</span>`;
+}
+
+// Последние 5 матчей, слева направо от старых к новым: цифра — голы, «·» — без голов (синий — были передачи).
+function fantasyGames(f, n = 5) {
+  const games = (f.last || []).slice(0, n).reverse();
+  if (!games.length) return '';
+  return `<span class="fgames">${games.map(([d, g, a, opp]) =>
+    `<i class="${g ? 'g' : a ? 'a' : ''}" title="${esc(d)} · ${esc(opp)}: ${g} г, ${a} п">${g ? g : '·'}</i>`).join('')}</span>`;
+}
+
+const fantasyForm = f => (f.last || []).slice(0, 5).reduce((t, g) => t + g[1], 0);
+// Рост OVR, который мы видели с начала отслеживания (по данным hutdb).
+const fantasyGrowth = f => (f.history?.length ? f.history.at(-1)[1] - f.history[0][1] : 0);
+
+function fantasyCards() {
+  return state.players.filter(p => p.card === FANTASY_CARD).map(p => ({ p, f: state.fantasy?.players?.[p.id] || {} }));
+}
+
+function renderFantasy() {
+  const all = fantasyCards();
+  const q = $('#fantasy-search').value.trim();
+  const sort = $('#fantasy-sort').value;
+  const nextT = x => x.f.next?.t || Infinity;
+  const sorters = {
+    ovr: (a, b) => b.p.ovr - a.p.ovr || (b.f.goals || 0) - (a.f.goals || 0),
+    goals: (a, b) => (b.f.goals || 0) - (a.f.goals || 0) || b.p.ovr - a.p.ovr,
+    form: (a, b) => fantasyForm(b.f) - fantasyForm(a.f) || (b.f.goals || 0) - (a.f.goals || 0),
+    next: (a, b) => nextT(a) - nextT(b) || b.p.ovr - a.p.ovr,
+    price: (a, b) => priceOf(b.p) - priceOf(a.p),
+  };
+  const list = all.filter(x => matchesQuery(x.p, q) || (x.f.team && x.f.team.toLowerCase() === q.toLowerCase())).sort(sorters[sort]);
+
+  // Плитки: лидер по OVR, лучший бомбардир, кто забил в последний игровой день.
+  const top = (cmp) => [...all].sort(cmp)[0];
+  const lastDay = all.map(x => x.f.last?.[0]?.[0]).filter(Boolean).sort().at(-1);
+  const scoredLast = all.filter(x => x.f.last?.[0]?.[0] === lastDay && x.f.last[0][1] > 0);
+  const tile = (title, x, sub) => x ? `<button class="ftile" data-id="${x.p.id}"><small>${title}</small>
+    <span class="badge" style="${cardStyle(x.p)}">${x.p.ovr}${cardImg(x.p, true)}</span><b>${esc(surname(x.p.name))}</b><em>${sub}</em></button>` : '';
+  const ovrTop = top(sorters.ovr);
+  const goalTop = top(sorters.goals);
+  const formTop = top(sorters.form);
+  $('#fantasy-top').innerHTML = all.length ? [
+    tile('Топ OVR', ovrTop, `${ovrTop.p.ovr} OVR`),
+    tile('Больше голов', goalTop, `${goalTop.f.goals || 0} гол. в сезоне`),
+    tile('В форме', formTop, `${fantasyForm(formTop.f)} гол. за 5 матчей`),
+  ].join('') : '';
+
+  $('#fantasy-list').innerHTML = list.map(({ p, f }) => {
+    const growth = fantasyGrowth(f);
+    const scoredNow = f.last?.[0]?.[0] === lastDay && f.last[0][1] > 0;
+    return `<button class="mrow${scoredNow ? ' suggest' : ''}" data-id="${p.id}">
+      <span class="badge" style="${cardStyle(p)}">${p.ovr}${cardImg(p, true)}</span>
+      <span class="info"><b>${flag(p.nation)} ${esc(p.name)}</b>
+        <small>${esc(p.pos)} · ${esc(f.team || p.team)} · ${fmtPrice(priceOf(p))}</small>
+        <small>${f.nhlId ? fantasyGameTime(f.next) || 'матчей на неделе нет' : 'нет данных НХЛ (АХЛ или не найден)'}</small>
+        ${fantasyGames(f)}</span>
+      <span class="fovr"><b>${p.ovr}</b>${growth > 0 ? `<small class="up">▲ +${growth} OVR</small>` : ''}
+        <small><span class="goals">${f.goals ?? '—'}</span> гол. · ${f.gp ?? 0} игр</small></span>
+    </button>`;
+  }).join('') || '<p class="hint">Никого не нашли</p>';
+
+  const upd = state.fantasy?.updated;
+  $('#fantasy-updated').innerHTML = `${list.length} карточек Fantasy`
+    + (scoredLast.length ? ` · <b class="up">забили ${new Date(lastDay).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}: ${scoredLast.length}</b> (подсвечены)` : '')
+    + (upd ? ` · статистика НХЛ обновлена ${timeAgo(upd * 1000)}` : '');
+}
+
+function fantasyDetailsHtml(p) {
+  const f = state.fantasy?.players?.[p.id];
+  if (p.card !== FANTASY_CARD || !f?.nhlId) return '';
+  return `<div class="section-title">🏒 Fantasy: +1 OVR за гол в НХЛ</div>
+    <div class="fantasy-box">
+      <div><b class="up">${f.goals}</b><small>голов в сезоне</small></div>
+      <div><b>${f.assists}</b><small>передач</small></div>
+      <div><b>${f.gp}</b><small>матчей</small></div>
+    </div>
+    <p class="hint">Последние матчи: ${fantasyGames(f, 8) || '—'}</p>
+    ${f.next ? `<p class="hint">Следующий матч: ${fantasyGameTime(f.next)}</p>` : ''}`;
+}
+
+async function loadFantasy() {
+  try {
+    state.fantasy = await (await fetch(`data/fantasy.json?t=${Date.now()}`)).json();
+  } catch {}
+  renderFantasy();
+}
+
 function sparkline(history) {
   if (!history || history.length < 2) return '<p class="hint">График появится, когда цена изменится.</p>';
   const w = 300, h = 60, pad = 4;
@@ -967,6 +1065,7 @@ function openDetails(id, slotKey = null) {
     <p class="hint drag-hint">Совет: зажмите карточку в составе, чтобы перетащить игрока в другое звено, или заголовок звена — чтобы поменять звенья местами.</p>
     <div class="section-title">Сыгранность в звене</div>
     ${lineCombosHtml(p, slotKey)}` : ''}
+    ${fantasyDetailsHtml(p)}
     <div class="section-title">⚡ Лучшие ${playerCat(p) === 'F' ? 'тройки' : 'пары'} с ним</div>
     <div class="segmented small best-metric">
       <button data-metric="all" class="active">Всё</button><button data-metric="OVR">OVR</button><button data-metric="SAL">Salary</button><button data-metric="AP">AP</button>
@@ -1081,9 +1180,11 @@ async function init() {
   state.lineup = Object.fromEntries(Object.entries(slots).filter(([, id]) => state.byId[id]));
   state.captain = state.byId[saved.captain] ? saved.captain : null;
   await loadPrices();
+  loadFantasy();
   renderTeam();
   $('#loading').hidden = true;
   setInterval(loadPrices, PRICE_REFRESH_MS);
+  setInterval(loadFantasy, PRICE_REFRESH_MS);
   loadMe();
 }
 
@@ -1181,6 +1282,12 @@ $('#market-list').addEventListener('click', e => {
     state.marketLimit += PAGE_SIZE;
     return renderMarket();
   }
+  const row = e.target.closest('[data-id]');
+  if (row) openDetails(Number(row.dataset.id));
+});
+$('#fantasy-search').addEventListener('input', renderFantasy);
+$('#fantasy-sort').addEventListener('change', renderFantasy);
+$('#view-fantasy').addEventListener('click', e => {
   const row = e.target.closest('[data-id]');
   if (row) openDetails(Number(row.dataset.id));
 });

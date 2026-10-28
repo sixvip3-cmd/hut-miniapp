@@ -107,6 +107,24 @@
     <div id="market-list"></div>
   </main>
 
+  <main id="view-fantasy" class="view">
+    <header class="page-title"><h1>Fantasy</h1><span>НХЛ · КАЖДЫЙ ЧАС</span></header>
+    <p class="hint fantasy-rule">🏒 Карточка Fantasy Hockey получает <b>+1 OVR за каждый гол</b> игрока в реальном матче НХЛ.<br><small>Квадратики — последние 5 матчей: цифра — голы, синий — только передачи.</small></p>
+    <div id="fantasy-top" class="fantasy-top"></div>
+    <div class="market-head">
+      <input id="fantasy-search" type="search" placeholder="Поиск игрока или команды…">
+      <select id="fantasy-sort">
+        <option value="ovr">OVR ↓</option>
+        <option value="goals">Голы в сезоне</option>
+        <option value="form">Форма (5 матчей)</option>
+        <option value="next">Скоро играют</option>
+        <option value="price">Цена ↓</option>
+      </select>
+    </div>
+    <p class="hint" id="fantasy-updated"></p>
+    <div id="fantasy-list"></div>
+  </main>
+
   <nav class="tabbar">
     <button data-view="team" class="active">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6l-8-3Z"/><path d="m9 12 2 2 4-4"/></svg>
@@ -115,6 +133,10 @@
     <button data-view="market">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/><path d="M15 8h4v4"/></svg>
       Маркет
+    </button>
+    <button data-view="fantasy">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.9 6.3 6.9.7-5.2 4.6 1.5 6.8L12 17l-6.1 3.4 1.5-6.8L2.2 9l6.9-.7L12 2z"/></svg>
+      Fantasy
     </button>
   </nav>
 

@@ -50,6 +50,19 @@ jobs:
           git commit -m "Sync hutdb.app data" || echo "no changes"
           git push
 
+      # Fantasy Hockey: голы игроков в реальных матчах НХЛ (api-web.nhle.com).
+      - name: Sync NHL stats for Fantasy cards
+        if: github.event_name != 'push'
+        continue-on-error: true
+        timeout-minutes: 8
+        run: |
+          node scripts/sync-fantasy.js
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/fantasy.json
+          git commit -m "Sync NHL Fantasy stats" || echo "no changes"
+          git pull --rebase -q && git push
+
       - name: Check Cloudflare settings
         id: cf
         run: |

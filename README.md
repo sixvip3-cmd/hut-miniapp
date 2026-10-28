@@ -31,6 +31,7 @@ Telegram ──▶ Cloudflare Worker (worker/src)
 - `public/` — приложение (HTML/CSS/JS без сборки).
 - `data/` — данные hutdb: `players.json`, `prices.json`, `combos.json`, `captains.json`, `coaches.json`.
 - `scripts/sync-hutdb.js` открывает hutdb.app/squad-builder в headless-браузере и сохраняет данные, которые страница загружает сама.
+- `scripts/sync-fantasy.js` — вкладка Fantasy: голы игроков карточек Fantasy Hockey в реальных матчах НХЛ (api-web.nhle.com), следующий матч, история OVR → `data/fantasy.json`.
 - `scripts/build-site.js` собирает `_site/` (приложение + данные + версия против кэша Telegram).
 - `worker/` — сервер: доступ, оплата, бот. `worker/schema.sql` — таблицы D1.
 - `.github/workflows/deploy.yml` — каждый час: синк hutdb → сборка → деплой воркера.

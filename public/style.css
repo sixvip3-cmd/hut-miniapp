@@ -272,7 +272,7 @@ select option { background: var(--bg-2); }
 /* ---------- Нижнее меню ---------- */
 .tabbar {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 5;
-  display: flex; gap: 4px; padding: 5px; width: min(320px, calc(100% - 32px));
+  display: flex; gap: 4px; padding: 5px; width: min(360px, calc(100% - 32px));
   background: rgba(16, 19, 26, .78); backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
   border: 1px solid var(--stroke-2); border-radius: 22px; box-shadow: 0 16px 40px -10px rgba(0,0,0,.8);
 }
@@ -434,3 +434,33 @@ body.drag-mode, body.drag-mode * { -webkit-user-select: none; user-select: none;
 .accent .check.ap input:checked { background: var(--purple); }
 .accent .check.ovr input:checked { background: var(--cyan); }
 .best-card small .off { color: #fbbf24; font-weight: 700; }
+
+/* ---------- Fantasy ---------- */
+.fantasy-rule { margin: -6px 2px 12px; }
+.fantasy-rule b { color: var(--gold); }
+.fantasy-top { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+.ftile {
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 6px; text-align: center; min-width: 0;
+  background: linear-gradient(180deg, rgba(227,189,106,.09), rgba(255,255,255,.015)); border: 1px solid rgba(227,189,106,.25); border-radius: 14px;
+}
+.ftile > small { color: var(--gold); font: 600 10px/1.2 var(--display); letter-spacing: 1.2px; text-transform: uppercase; }
+.ftile .badge { position: relative; overflow: hidden; width: 54px; aspect-ratio: 804 / 1128; border-radius: 6px; display: grid; place-items: center; font: 600 16px/1 var(--display); background: linear-gradient(160deg, var(--c1), var(--c2)); }
+.ftile b { font: 600 13px/1.15 var(--display); letter-spacing: .5px; text-transform: uppercase; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ftile em { font-style: normal; color: var(--muted); font-size: 11px; }
+.fgames { display: flex; gap: 3px; margin-top: 3px; align-items: center; }
+.fgames i {
+  width: 17px; height: 17px; border-radius: 5px; display: grid; place-items: center; font: 700 10px/1 var(--display); font-style: normal;
+  background: rgba(255,255,255,.06); color: var(--muted);
+}
+.fgames i.g { background: rgba(74,222,128,.18); color: var(--green); }
+.fgames i.a { background: rgba(96,165,250,.14); color: #93c5fd; }
+.fgames span { color: var(--muted); font-size: 11px; margin-left: 4px; }
+.mrow .fovr { text-align: right; white-space: nowrap; }
+.mrow .fovr b { display: block; font: 600 22px/1 var(--display); color: var(--text); }
+.mrow .fovr small { display: block; font-size: 11px; color: var(--muted); margin-top: 3px; }
+.mrow .fovr .goals { color: var(--green); font-weight: 700; }
+.fnext.live { color: var(--red) !important; font-weight: 700; }
+.fantasy-box { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0; }
+.fantasy-box div { padding: 8px; border-radius: 12px; background: rgba(255,255,255,.04); border: 1px solid var(--stroke); text-align: center; }
+.fantasy-box b { display: block; font: 600 20px/1 var(--display); }
+.fantasy-box small { color: var(--muted); font-size: 11px; }
