@@ -572,6 +572,142 @@ function bestForSlot(key, fits) {
   return { line, others, combos, base, top };
 }
 
+// ---------- Лучшие тройки / пары с игроком ----------
+// Перебрать все тройки нельзя (миллионы вариантов), поэтому:
+//  1) берём только комбинации, в которые входит сам игрок (без него в звене из 3 или паре из 2
+//     комбинация всё равно не сработает);
+//  2) на каждый оставшийся слот отбираем кандидатов, закрывающих их требования
+//     (лучших по сумме бонусов + лучших по каждому отдельному требованию);
+//  3) все пары/тройки из кандидатов считаем точно и сортируем по выбранной метрике.
+const METRIC_W = {
+  all: b => weightOf(b),
+  OVR: b => b.OVR * 1000 + weightOf(b),
+  SAL: b => b.SAL * 1000 + weightOf(b),
+  AP: b => b.AP * 1000 + weightOf(b),
+};
+
+function lineForPlayer(p, slotKey) {
+  if (slotKey) return LINES.find(l => l.id === slotKey.split('-')[0]);
+  return LINES.find(l => l.cat === playerCat(p));
+}
+
+const bestLinesCache = new Map();
+
+function bestLinesFor(p, slotKey, metric = 'all', limit = 3) {
+  const line = lineForPlayer(p, slotKey);
+  const cacheKey = `${p.id}|${line.id}|${metric}|${state.coach || ''}|${state.coachState?.activeCount || 0}`;
+  if (!bestLinesCache.has(cacheKey)) {
+    if (bestLinesCache.size > 50) bestLinesCache.clear();
+    bestLinesCache.set(cacheKey, computeBestLines(p, line, metric, limit));
+  }
+  return bestLinesCache.get(cacheKey);
+}
+
+function computeBestLines(p, line, metric, limit) {
+  const combos = combosForLine(line).filter(c => c.cat === line.cat && c.reqs.length <= line.slots.length && c.reqs.some(r => reqMatches(r, p)));
+  if (!combos.length) return { line, variants: [] };
+  const pSlot = line.cat === 'G' ? 'STARTER' : p.pos;
+  const otherSlots = line.slots.filter(sl => sl !== pSlot);
+  const nameOf = q => q.name.trim().toLowerCase();
+
+  const reqs = new Map();
+  for (const c of combos) for (const r of c.reqs) {
+    const key = JSON.stringify(r);
+    reqs.set(key, { r, w: (reqs.get(key)?.w || 0) + weightOf(c.boost) });
+  }
+  const pools = otherSlots.map(slot => {
+    const scored = [];
+    for (const q of state.players) {
+      if (!slotAccepts(slot, q) || nameOf(q) === nameOf(p)) continue;
+      let sc = 0;
+      for (const { r, w } of reqs.values()) if (reqMatches(r, q)) sc += w;
+      if (sc) scored.push({ q, sc });
+    }
+    scored.sort((a, b) => b.sc - a.sc || b.q.ovr - a.q.ovr || priceOf(b.q) - priceOf(a.q));
+    const pick = new Map(scored.slice(0, 25).map(x => [x.q.id, x.q]));
+    for (const { r } of reqs.values()) {
+      let n = 0;
+      for (const x of scored) {
+        if (n >= 2) break;
+        if (reqMatches(r, x.q)) { pick.set(x.q.id, x.q); n++; }
+      }
+    }
+    return [...pick.values()];
+  });
+
+  const weigh = METRIC_W[metric];
+  const results = [];
+  const consider = mates => {
+    if (new Set(mates.map(nameOf)).size !== mates.length) return;
+    const players = [p, ...mates];
+    const total = { OVR: 0, SAL: 0, AP: 0 };
+    const active = [];
+    for (const c of combos) {
+      const who = assignCombo(c, players);
+      if (!who) continue;
+      active.push({ combo: c, players: who });
+      total.OVR += c.boost.OVR; total.SAL += c.boost.SAL; total.AP += c.boost.AP;
+    }
+    if (!weightOf(total)) return;
+    results.push({
+      players, slots: [pSlot, ...otherSlots], total, active,
+      score: weigh(total), ovr: players.reduce((t, q) => t + q.ovr, 0),
+      salary: players.reduce((t, q) => t + q.salary, 0),
+      price: players.reduce((t, q) => t + priceOf(q), 0),
+    });
+  };
+  if (pools.length === 1) pools[0].forEach(q => consider([q]));
+  else for (const a of pools[0]) for (const b of pools[1]) consider([a, b]);
+  results.sort((x, y) => y.score - x.score || y.ovr - x.ovr || x.salary - y.salary);
+  return { line, variants: results.slice(0, limit) };
+}
+
+// Куда ставить звено: звено игрока; иначе первое пустое звено нужного типа.
+function targetLineFor(p, slotKey) {
+  if (slotKey) return slotKey.split('-')[0];
+  const cat = playerCat(p);
+  const empty = LINES.find(l => l.cat === cat && l.slots.every(sl => !state.lineup[`${l.id}-${sl}`]));
+  const withP = LINES.find(l => l.cat === cat && l.slots.some(sl => state.lineup[`${l.id}-${sl}`] === p.id));
+  return (withP || empty)?.id || null;
+}
+
+function applyLine(lineId, variant) {
+  const names = new Set(variant.players.map(q => q.name.trim().toLowerCase()));
+  for (const [k, v] of Object.entries(state.lineup)) {
+    if (names.has(state.byId[v]?.name.trim().toLowerCase())) delete state.lineup[k];
+  }
+  variant.slots.forEach((slot, i) => (state.lineup[`${lineId}-${slot}`] = variant.players[i].id));
+  saveLineup();
+  renderTeam();
+  haptic('medium');
+}
+
+function bestLinesHtml(p, slotKey, metric) {
+  const { line, variants } = bestLinesFor(p, slotKey, metric);
+  state.bestVariants = variants;
+  if (!variants.length) return '<p class="hint">Для этого игрока нет комбинаций, которые можно собрать в одном звене.</p>';
+  return variants.map((v, i) => `
+    <div class="best-line">
+      <div class="best-head">
+        <span class="chips">${boostChips(v.total)}</span>
+        <span class="best-meta">${Math.round(v.ovr / v.players.length)} OVR · $${v.salary.toFixed(1)}M${v.price ? ` · ${fmtPrice(v.price)}` : ''}</span>
+      </div>
+      <div class="best-cards n${v.players.length}">
+        ${v.slots.map((slot, k) => ({ slot, q: v.players[k] })).sort((a, b) => line.slots.indexOf(a.slot) - line.slots.indexOf(b.slot)).map(({ slot, q }) => `
+          <div class="best-card ${q.id === p.id ? 'me' : ''}" data-id="${q.id}">
+            <span class="card" style="${cardStyle(q)}">${cardHtml(q)}</span>
+            <b>${esc(surname(q.name))}</b>
+            <small>${slot === 'STARTER' ? 'Основной' : slot === 'BACKUP' ? 'Запасной' : slot} · ${fmtPrice(priceOf(q))}</small>
+          </div>`).join('')}
+      </div>
+      <details class="best-combos"><summary>Комбинации: ${v.active.length}</summary>
+        ${v.active.map(a => `<div class="combo on"><span class="chips">${boostChips(a.combo.boost)}</span>
+          <span class="reqs">${a.combo.coach ? '<span class="req ok">Тренер</span>' : ''}${a.combo.reqs.map((r, j) => `<span class="req ok">${esc(reqLabel(r))}<small>${esc(surname(a.players[j].name))}</small></span>`).join('')}</span></div>`).join('')}
+      </details>
+      <button class="btn-line" data-apply="${i}">Поставить ${line.cat === 'F' ? 'звено' : 'пару'}</button>
+    </div>`).join('');
+}
+
 function renderPickerList() {
   if (state.pickerSlot === 'COACH') return renderCoachList();
   const isCaptain = state.pickerSlot === 'CAPTAIN';
@@ -798,6 +934,11 @@ function openDetails(id, slotKey = null) {
     <p class="hint drag-hint">Совет: зажмите карточку в составе, чтобы перетащить игрока в другое звено, или заголовок звена — чтобы поменять звенья местами.</p>
     <div class="section-title">Сыгранность в звене</div>
     ${lineCombosHtml(p, slotKey)}` : ''}
+    <div class="section-title">⚡ Лучшие ${playerCat(p) === 'F' ? 'тройки' : 'пары'} с ним</div>
+    <div class="segmented small best-metric">
+      <button data-metric="all" class="active">Всё</button><button data-metric="OVR">OVR</button><button data-metric="SAL">Salary</button><button data-metric="AP">AP</button>
+    </div>
+    <div id="best-lines"><p class="hint">Подбираю лучшие варианты…</p></div>
     <div class="section-title">Характеристики</div>
     <div id="stats-box"><p class="hint">Загружаю…</p></div>
     ${p.abilities.length ? `<div class="section-title">Способности</div><div class="chips" style="margin-bottom:8px">${p.abilities.map(([n, ap]) => `<span class="chip">${esc(n.replace(/_/g, ' '))} · ${ap} AP</span>`).join('')}</div>` : ''}
@@ -820,6 +961,31 @@ function openDetails(id, slotKey = null) {
   loadStats(p).then(groups => {
     if ($('#details-title').textContent === p.name && $('#stats-box')) $('#stats-box').innerHTML = statsHtml(groups);
   });
+  // Лучшие звенья: считаем после отрисовки меню, чтобы оно открылось сразу.
+  const showBest = metric => setTimeout(() => {
+    if ($('#best-lines')) $('#best-lines').innerHTML = bestLinesHtml(p, slotKey, metric);
+  }, 30);
+  showBest('all');
+  $('#details-content .best-metric').onclick = e => {
+    const b = e.target.closest('[data-metric]');
+    if (!b) return;
+    $('#details-content .best-metric').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+    $('#best-lines').innerHTML = '<p class="hint">Подбираю…</p>';
+    showBest(b.dataset.metric);
+  };
+  $('#best-lines').onclick = e => {
+    const btn = e.target.closest('[data-apply]');
+    if (btn) {
+      const v = state.bestVariants?.[Number(btn.dataset.apply)];
+      const lineId = v && targetLineFor(p, slotKey);
+      if (!lineId) return toast('Нет свободного звена — освободите звено или откройте игрока из состава');
+      applyLine(lineId, v);
+      closeSheets();
+      return toast(`${LINE_LABELS[lineId]}: ${['OVR', 'SAL', 'AP'].filter(t => v.total[t]).map(t => boostText(t, v.total[t])).join(' ')}`);
+    }
+    const card = e.target.closest('.best-card[data-id]');
+    if (card && Number(card.dataset.id) !== p.id) openDetails(Number(card.dataset.id));
+  };
   $('#details-content').querySelectorAll('[data-act]').forEach(b => b.onclick = () => {
     if (b.dataset.act === 'replace') {
       closeSheets();

@@ -403,3 +403,22 @@ body.drag-mode, body.drag-mode * { -webkit-user-select: none; user-select: none;
 .syn em.ovr { color: var(--cyan); }
 .syn em.sal { color: var(--green); }
 .syn em.ap { color: var(--purple); }
+
+/* ---------- Лучшие тройки / пары ---------- */
+.best-metric { margin-bottom: 10px; }
+.best-line { padding: 12px; margin-bottom: 10px; border-radius: 14px; border: 1px solid rgba(227,189,106,.28);
+  background: linear-gradient(180deg, rgba(227,189,106,.08), rgba(255,255,255,.015)); }
+.best-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+.best-meta { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.best-cards { display: grid; gap: 8px; }
+.best-cards.n3 { grid-template-columns: repeat(3, 1fr); }
+.best-cards.n2 { grid-template-columns: repeat(2, 1fr); padding: 0 16%; }
+.best-card { text-align: center; min-width: 0; cursor: pointer; }
+.best-card .card { display: flex; width: 100%; border-radius: 8px; }
+.best-card.me .card { box-shadow: 0 0 0 2px var(--gold); }
+.best-card b { display: block; margin-top: 6px; font: 600 12px/1.2 var(--display); letter-spacing: .4px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.best-card small { display: block; color: var(--muted); font-size: 10.5px; }
+.best-combos { margin-top: 8px; }
+.best-combos summary { cursor: pointer; color: var(--gold); font-size: 12px; font-weight: 600; padding: 4px 0; }
+.btn-line { width: 100%; margin-top: 10px; padding: 12px; border-radius: 12px; background: var(--gold-grad); color: #1a1205;
+  font: 600 14px/1 var(--display); letter-spacing: 1.2px; text-transform: uppercase; }
