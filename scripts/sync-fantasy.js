@@ -13,13 +13,13 @@ const CARD = 'Fantasy Hockey';
 const norm = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z]/g, '');
 
 async function get(url) {
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 5; i++) {
     try {
       const res = await fetch(url, { redirect: 'follow' });
       if (res.ok) return res.json();
       if (res.status === 404) return null;
     } catch {}
-    await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+    await new Promise(r => setTimeout(r, 1500 * (i + 1)));
   }
   return null;
 }
@@ -73,7 +73,7 @@ async function main() {
   }
 
   const out = { updated: now, players: {} };
-  let matched = 0;
+  let matched = 0, failed = 0;
   for (const p of cards) {
     const old = prev.players[p.id] || {};
     const history = old.history?.length ? old.history : [[now, p.ovr]];
@@ -84,7 +84,13 @@ async function main() {
     if (nhlId) {
       matched++;
       const [log, landing] = await Promise.all([get(`${API}/player/${nhlId}/game-log/now`), get(`${API}/player/${nhlId}/landing`)]);
-      const games = (log?.gameLog || []).filter(g => g.gameDate);
+      if (!log) {
+        // НХЛ не ответил — оставляем прошлые данные игрока, а не нули.
+        failed++;
+        out.players[p.id] = { ...old, history, nhlId };
+        continue;
+      }
+      const games = (log.gameLog || []).filter(g => g.gameDate);
       const team = landing?.currentTeamAbbrev || abbrevOf.get(norm(p.team)) || null;
       Object.assign(row, {
         nhlId,
@@ -95,14 +101,16 @@ async function main() {
         // последние матчи: [дата, голы, передачи, соперник, дома]
         last: games.sort((a, b) => b.gameDate.localeCompare(a.gameDate)).slice(0, 8)
           .map(g => [g.gameDate, g.goals || 0, g.assists || 0, g.opponentAbbrev, g.homeRoadFlag === 'H']),
-        next: await nextGame(team),
+        next: (await nextGame(team)) ?? (old.next?.t > now - 4 * 3600 ? old.next : null),
       });
+      await new Promise(r => setTimeout(r, 150));
     }
     out.players[p.id] = row;
   }
   if (matched < cards.length * 0.7) throw new Error(`matched only ${matched}/${cards.length}`);
+  if (failed > matched * 0.3) throw new Error(`NHL API failed for ${failed}/${matched} players`);
   fs.writeFileSync(OUT, JSON.stringify(out));
-  console.log(`fantasy: ${cards.length} cards, ${matched} matched to NHL players`);
+  console.log(`fantasy: ${cards.length} cards, ${matched} matched to NHL players, ${failed} kept from previous sync`);
 }
 
 main().catch(err => { console.error(err); process.exit(1); });
