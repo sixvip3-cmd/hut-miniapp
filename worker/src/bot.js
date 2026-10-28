@@ -189,7 +189,7 @@ async function inlineQuery(env, q, origin) {
   }
   const username = await botUsername(env);
   const results = rows.slice(0, 20).map(([id, name, ovr, pos, card, team, img, priceC]) => {
-    const path = img.includes('/') ? img : `cards/${img}`;
+    const path = `cards/${img}`; // вратари — cards/goalies/…
     const caption = [
       `🏒 <b>${esc(name)}</b> — ${ovr} OVR · ${esc(pos)}`,
       `🃏 ${esc(card)} · ${esc(team)}`,

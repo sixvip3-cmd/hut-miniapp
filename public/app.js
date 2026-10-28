@@ -91,7 +91,7 @@ const surname = name => name.split(' ').slice(1).join(' ') || name;
 const titleCase = s => s.toLowerCase().replace(/(^|[\s.-])\p{L}/gu, m => m.toUpperCase());
 function imgUrl(p, thumb = false) {
   if (!p?.img) return null;
-  const path = p.img.includes('/') ? p.img : `cards/${p.img}`;
+  const path = `cards/${p.img}`; // карточки игроков и вратарей (cards/goalies/…) лежат в папке cards
   if (!thumb) return ORIGINAL_BASE + path;
   return `${THUMB_BASE}${path}${path.includes('?') ? '&' : '?'}resize=contain&width=200&quality=80`;
 }
