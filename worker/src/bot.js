@@ -1,6 +1,7 @@
 // Обработка апдейтов бота: оплата, команды, рефералы, инлайн-поиск карточек.
 
 import { bot } from './telegram.js';
+import { broadcastCallback, cmdBroadcast } from './broadcast.js';
 import {
   extendDays, getUser, hasAccess, isAdmin, price, recordPayment, referralStats, refBonusDays,
   revokeByCharge, rewardReferrer, stats, touchUser, trialAvailable, trialDays,
@@ -233,6 +234,7 @@ export async function handleUpdate(update, env, origin) {
   if (update.callback_query) {
     const cq = update.callback_query;
     await bot(env, 'answerCallbackQuery', { callback_query_id: cq.id });
+    if (await broadcastCallback(env, cq)) return;
     if (cq.data === 'invite') await cmdInvite(env, cq.from.id, cq.from.id);
     return;
   }
@@ -282,6 +284,7 @@ export async function handleUpdate(update, env, origin) {
     case '/stats': return cmdStats(env, msg);
     case '/refund': return cmdRefund(env, msg, args);
     case '/gift': return cmdGift(env, msg, args);
+    case '/broadcast': return cmdBroadcast(env, msg, args);
     default:
       if (rawCmd.startsWith('/')) return send(env, msg.chat.id, HELP(env));
   }

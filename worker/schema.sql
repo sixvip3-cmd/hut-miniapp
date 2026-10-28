@@ -54,3 +54,25 @@ CREATE TABLE IF NOT EXISTS meta (
   k TEXT PRIMARY KEY,
   v TEXT
 );
+
+-- Рассылки всем пользователям (команда /broadcast для админов).
+CREATE TABLE IF NOT EXISTS broadcasts (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  from_chat_id INTEGER NOT NULL,   -- откуда копировать сообщение
+  message_id   INTEGER NOT NULL,
+  created_at   INTEGER,
+  status       TEXT,               -- draft | sending | done | cancelled
+  total        INTEGER DEFAULT 0,
+  sent         INTEGER DEFAULT 0,
+  failed       INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS broadcast_queue (
+  broadcast_id INTEGER NOT NULL,
+  user_id      INTEGER NOT NULL,
+  PRIMARY KEY (broadcast_id, user_id)
+);
+-- Пользователи, заблокировавшие бота: им не пишем.
+CREATE TABLE IF NOT EXISTS blocked (
+  user_id INTEGER PRIMARY KEY,
+  at      INTEGER
+);

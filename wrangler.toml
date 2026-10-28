@@ -10,9 +10,9 @@ directory = "./_site"
 binding = "ASSETS"
 run_worker_first = true
 
-# Напоминания о подписке и ежедневный дайджест.
+# Напоминания и дайджест (каждые 30 мин), рассылка /broadcast (каждую минуту).
 [triggers]
-crons = ["*/30 * * * *"]
+crons = ["*/30 * * * *", "* * * * *"]
 
 [[d1_databases]]
 binding = "DB"

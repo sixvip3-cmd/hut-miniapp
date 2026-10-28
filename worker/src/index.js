@@ -12,11 +12,13 @@
 //   POST /telegram/webhook     — апдейты бота (worker/src/bot.js)
 //   POST /admin/setup          — вебхук, кнопка меню, команды (ключ из токена бота)
 //   cron каждые 30 минут       — напоминания и дайджест (worker/src/cron.js)
+//   cron каждую минуту         — очередная пачка рассылки /broadcast (worker/src/broadcast.js)
 
 import { bot, derivedSecret, signSession, validateInitData, verifySession } from './telegram.js';
 import { loaderPage } from './loader.js';
 import { BOT_COMMANDS, botUsername, handleUpdate, refLink } from './bot.js';
 import { runScheduled, saveOrigin } from './cron.js';
+import { processBroadcasts } from './broadcast.js';
 import {
   hasAccess, now, price, referralStats, refBonusDays, SUB_PERIOD, startTrial, touchUser, trialAvailable, trialDays,
 } from './db.js';
@@ -195,6 +197,7 @@ export default {
   },
 
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(runScheduled(env));
+    // раз в минуту — очередная пачка рассылки, раз в 30 минут — напоминания и дайджест
+    ctx.waitUntil(event.cron === '*/30 * * * *' ? runScheduled(env) : processBroadcasts(env));
   },
 };
