@@ -460,6 +460,8 @@ function openPicker(key) {
     : current ? `${slotOf(key)}: ${current.name}` : `Слот ${slotOf(key)}`;
   $('#picker-remove').hidden = !current;
   $('#picker-allpos').parentElement.hidden = isCaptain || isCoach;
+  $('#picker-accent').hidden = isCaptain || isCoach;
+  $('#picker-accent').querySelectorAll('input').forEach(i => (i.checked = state.accent.has(i.value)));
   $('#picker-search').value = '';
   $('#picker-allpos').checked = false;
   $('#picker').hidden = false;
@@ -510,6 +512,19 @@ function synergyFor(cand, line, others, base, combos = combosForLine(line)) {
 
 // Лучшие кандидаты для слота: ищем комбинации, которым звену не хватает одного игрока,
 // и игроков подходящей позиции, закрывающих это требование.
+// ---------- Акцент подбора: Salary / AP / OVR (галочки в выборе игрока) ----------
+const ACCENT_KEY = 'hut-accent';
+state.accent = new Set((() => { try { return JSON.parse(localStorage.getItem(ACCENT_KEY)) || []; } catch { return []; } })());
+
+// Вклад отмеченных показателей (OVR весомее). Без галочек — общий вес.
+function accentPart(b) {
+  if (!state.accent.size) return weightOf(b);
+  let w = 0;
+  for (const t of state.accent) w += (t === 'OVR' ? 3 : 1) * (b[t] || 0);
+  return w;
+}
+const accentKey = b => accentPart(b) * 1000 + weightOf(b);
+
 function bestForSlot(key, fits) {
   const [lineId, slot] = key.split('-');
   const line = LINES.find(l => l.id === lineId);
@@ -526,7 +541,7 @@ function bestForSlot(key, fits) {
     for (let i = 0; i < n && !found; i++) {
       const rest = { reqs: c.reqs.filter((_, k) => k !== i) };
       if (rest.reqs.length <= others.length && assignCombo(rest, others)) {
-        wanted.push({ req: c.reqs[i], w: weightOf(c.boost) });
+        if (accentPart(c.boost) > 0) wanted.push({ req: c.reqs[i], w: accentPart(c.boost) });
         found = true;
       }
     }
@@ -536,7 +551,7 @@ function bestForSlot(key, fits) {
         if (i === j) continue;
         const rest = { reqs: c.reqs.filter((_, k) => k !== i && k !== j) };
         if (!rest.reqs.length || assignCombo(rest, others)) {
-          almost.push({ req: c.reqs[i], need: c.reqs[j], combo: c, w: weightOf(c.boost) });
+          if (accentPart(c.boost) > 0) almost.push({ req: c.reqs[i], need: c.reqs[j], combo: c, w: accentPart(c.boost) });
           found = true;
         }
       }
@@ -552,8 +567,8 @@ function bestForSlot(key, fits) {
   scored.sort((a, b) => b.score - a.score || b.p.ovr - a.p.ovr);
   const top = scored.slice(0, 40)
     .map(({ p }) => ({ p, syn: synergyFor(p, line, others, base, combos) }))
-    .filter(x => weightOf(x.syn.delta) > 0)
-    .sort((a, b) => weightOf(b.syn.delta) - weightOf(a.syn.delta) || b.p.ovr - a.p.ovr || priceOf(b.p) - priceOf(a.p))
+    .filter(x => accentPart(x.syn.delta) > 0)
+    .sort((a, b) => accentKey(b.syn.delta) - accentKey(a.syn.delta) || b.p.ovr - a.p.ovr || priceOf(b.p) - priceOf(a.p))
     .slice(0, 8);
 
   // Если закрыть комбинацию одним игроком нельзя — подсказываем «почти комбо».
@@ -732,15 +747,18 @@ function renderPickerList() {
   }
 
   // Подсказки по сыгранности со звеном (считаем один раз, пока открыто меню выбора).
-  const memo = `${state.pickerSlot}|${allPos}|${JSON.stringify(state.lineup)}`;
+  const memo = `${state.pickerSlot}|${allPos}|${[...state.accent].sort()}|${JSON.stringify(state.lineup)}`;
   if (state.pickerBest?.memo !== memo) state.pickerBest = { memo, data: bestForSlot(state.pickerSlot, fits) };
   const best = state.pickerBest.data;
   const syn = p => synergyFor(p, best.line, best.others, best.base, best.combos);
   let html = '';
   if (!q && best.top.length) {
-    html += `<div class="picker-section">🔥 Лучше всего для этого звена</div>
+    const accentLabel = state.accent.size ? ` · ${['SAL', 'AP', 'OVR'].filter(t => state.accent.has(t)).map(t => (t === 'SAL' ? 'Salary' : t)).join(' + ')}` : '';
+    html += `<div class="picker-section">🔥 Лучше всего для этого звена${accentLabel}</div>
       ${best.top.map(({ p, syn: s }) => playerRow(p, mark(p), s, 'suggest')).join('')}
       <div class="picker-section">Все игроки</div>`;
+  } else if (!q && best.others.length && state.accent.size) {
+    html += '<p class="hint">С отмеченным акцентом подходящих комбинаций для этого звена нет — снимите галочку или выберите другую.</p>';
   } else if (!q && !best.others.length) {
     html += '<p class="hint">Поставьте в звено хотя бы одного игрока — подскажем, кто сыграет с ним лучше.</p>';
   }
@@ -1111,6 +1129,13 @@ $('#staff-detail').addEventListener('click', e => {
 
 $('#picker-search').addEventListener('input', renderPickerList);
 $('#picker-allpos').addEventListener('change', renderPickerList);
+$('#picker-accent').addEventListener('change', e => {
+  const v = e.target.value;
+  if (e.target.checked) state.accent.add(v); else state.accent.delete(v);
+  try { localStorage.setItem(ACCENT_KEY, JSON.stringify([...state.accent])); } catch {}
+  haptic();
+  renderPickerList();
+});
 $('#picker-list').addEventListener('click', e => {
   const coachRow = e.target.closest('[data-coach]');
   if (coachRow) {
