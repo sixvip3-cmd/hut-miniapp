@@ -7,8 +7,8 @@ export const now = () => Math.floor(Date.now() / 1000);
 export const price = env => Math.max(1, Number(env.PRICE_STARS) || 150);
 export const trialDays = env => Math.max(0, Number(env.TRIAL_DAYS ?? 3));
 export const refBonusDays = env => Math.max(0, Number(env.REF_BONUS_DAYS ?? 7));
-const admins = env => String(env.ADMIN_IDS || '').split(/[\s,]+/).filter(Boolean).map(Number);
-export const isAdmin = (env, id) => admins(env).includes(Number(id));
+export const adminIds = env => String(env.ADMIN_IDS || '').split(/[\s,]+/).filter(Boolean).map(Number);
+export const isAdmin = (env, id) => adminIds(env).includes(Number(id));
 
 // ---------- Пользователи ----------
 export async function touchUser(env, user, refBy = null) {

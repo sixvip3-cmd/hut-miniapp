@@ -16,11 +16,11 @@
 
 import { bot, derivedSecret, signSession, validateInitData, verifySession } from './telegram.js';
 import { loaderPage } from './loader.js';
-import { BOT_COMMANDS, botUsername, handleUpdate, refLink } from './bot.js';
+import { ADMIN_COMMANDS, BOT_COMMANDS, botUsername, handleUpdate, refLink } from './bot.js';
 import { runScheduled, saveOrigin } from './cron.js';
 import { processBroadcasts } from './broadcast.js';
 import {
-  hasAccess, now, price, referralStats, refBonusDays, SUB_PERIOD, startTrial, touchUser, trialAvailable, trialDays,
+  adminIds, hasAccess, now, price, referralStats, refBonusDays, SUB_PERIOD, startTrial, touchUser, trialAvailable, trialDays,
 } from './db.js';
 
 const SESSION_TTL = 12 * 3600;
@@ -158,6 +158,9 @@ async function handleSetup(env, origin) {
   });
   await bot(env, 'setChatMenuButton', { menu_button: { type: 'web_app', text: 'HUT Builder', web_app: { url: `${origin}/` } } });
   await bot(env, 'setMyCommands', { commands: BOT_COMMANDS });
+  for (const id of adminIds(env)) {
+    await bot(env, 'setMyCommands', { commands: ADMIN_COMMANDS, scope: { type: 'chat', chat_id: id } }).catch(() => {});
+  }
   await bot(env, 'setMyShortDescription', {
     short_description: 'Конструктор состава NHL HUT: line combos, капитаны, тренеры и цены маркета. Подписка за ⭐',
   }).catch(() => {});

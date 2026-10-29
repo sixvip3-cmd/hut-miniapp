@@ -2,6 +2,7 @@
 
 import { bot } from './telegram.js';
 import { broadcastCallback, cmdBroadcast } from './broadcast.js';
+import { cmdUser, cmdUsers, usersCallback } from './users.js';
 import {
   extendDays, getUser, hasAccess, isAdmin, price, recordPayment, referralStats, refBonusDays,
   revokeByCharge, rewardReferrer, stats, touchUser, trialAvailable, trialDays,
@@ -235,6 +236,7 @@ export async function handleUpdate(update, env, origin) {
     const cq = update.callback_query;
     await bot(env, 'answerCallbackQuery', { callback_query_id: cq.id });
     if (await broadcastCallback(env, cq)) return;
+    if (await usersCallback(env, cq)) return;
     if (cq.data === 'invite') await cmdInvite(env, cq.from.id, cq.from.id);
     return;
   }
@@ -285,6 +287,8 @@ export async function handleUpdate(update, env, origin) {
     case '/refund': return cmdRefund(env, msg, args);
     case '/gift': return cmdGift(env, msg, args);
     case '/broadcast': return cmdBroadcast(env, msg, args);
+    case '/users': return cmdUsers(env, msg, args);
+    case '/user': return cmdUser(env, msg, args);
     default:
       if (rawCmd.startsWith('/')) return send(env, msg.chat.id, HELP(env));
   }
@@ -298,5 +302,16 @@ export const BOT_COMMANDS = [
   { command: 'help', description: 'Все команды' },
   { command: 'terms', description: 'Условия подписки' },
   { command: 'paysupport', description: 'Помощь с оплатой' },
+];
+
+// Меню команд, которое видят только админы (в своём чате с ботом).
+export const ADMIN_COMMANDS = [
+  ...BOT_COMMANDS,
+  { command: 'users', description: '👑 Все пользователи' },
+  { command: 'user', description: '👑 Профиль: /user id или @username' },
+  { command: 'stats', description: '👑 Статистика' },
+  { command: 'broadcast', description: '👑 Рассылка всем' },
+  { command: 'gift', description: '👑 Подарить дни: /gift id дней' },
+  { command: 'refund', description: '👑 Вернуть звёзды: /refund id' },
 ];
 
