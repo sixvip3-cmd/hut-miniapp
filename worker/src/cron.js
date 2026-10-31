@@ -76,8 +76,10 @@ async function reminders(env, origin, budget) {
 }
 
 // ---------- Дайджест ----------
-function digestText(d) {
+function digestText(d, today) {
   const lines = [`📰 <b>HUT Builder — дайджест за ${date(now())}</b>`];
+  const f = d.featured?.date === today ? d.featured : null;
+  if (f) lines.push('', `<b>${esc(f.title)}</b>`, ...(f.lines || []).map(esc));
   if (d.newCount) {
     lines.push('', `🆕 <b>Новые карточки: ${d.newCount}</b>`);
     for (const c of d.newCards.slice(0, 6)) lines.push(`• ${esc(c.name)} — ${c.ovr} · ${esc(c.card)}`);
@@ -98,8 +100,8 @@ async function digest(env, origin, budget) {
   const res = await env.ASSETS.fetch(new Request('https://assets.local/data/digest.json'));
   if (!res.ok) return 0;
   const d = await res.json();
-  if (!d.newCount && !d.up.length && !d.down.length) return 0;
-  const text = digestText(d);
+  if (!d.newCount && !d.up.length && !d.down.length && d.featured?.date !== today) return 0;
+  const text = digestText(d, today);
 
   // Только тем, у кого есть доступ и включён дайджест.
   const rows = await env.DB.prepare(

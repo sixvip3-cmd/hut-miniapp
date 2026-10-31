@@ -61,8 +61,12 @@ for (const p of players) {
   const change = Math.round(((current - before[1]) / before[1]) * 1000) / 10;
   if (Math.abs(change) >= 3) movers.push({ name: p.name, ovr: p.ovr, card: p.card, price: current, change });
 }
+// data/featured.json — «тройка дня» и т.п.: попадает в дайджест только в указанную дату (UTC).
+const featuredFile = path.join(DATA, 'featured.json');
+const featured = fs.existsSync(featuredFile) ? JSON.parse(fs.readFileSync(featuredFile, 'utf8')) : null;
 const digest = {
   generatedAt: new Date().toISOString(),
+  featured,
   newCount: newCards.length,
   newCards: newCards.slice(0, 10).map(p => ({ name: p.name, ovr: p.ovr, card: p.card })),
   up: movers.filter(m => m.change > 0).sort((a, b) => b.change - a.change).slice(0, 5),
