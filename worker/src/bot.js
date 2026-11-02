@@ -3,6 +3,7 @@
 import { bot } from './telegram.js';
 import { broadcastCallback, cmdBroadcast } from './broadcast.js';
 import { cmdUser, cmdUsers, usersCallback } from './users.js';
+import { sendDigestNow } from './cron.js';
 import {
   extendDays, getUser, hasAccess, isAdmin, price, recordPayment, referralStats, refBonusDays,
   revokeByCharge, rewardReferrer, stats, touchUser, trialAvailable, trialDays,
@@ -86,7 +87,8 @@ async function cmdInvite(env, chatId, userId) {
   });
 }
 
-async function cmdDigest(env, msg) {
+async function cmdDigest(env, msg, args = []) {
+  if (args[0] === 'test' && isAdmin(env, msg.from.id)) return sendDigestNow(env, msg.chat.id);
   const u = await getUser(env, msg.from.id);
   const on = u ? !u.digest : false;
   await touchUser(env, msg.from);
@@ -277,7 +279,7 @@ export async function handleUpdate(update, env, origin) {
     case '/start': return cmdStart(env, msg, args[0], origin);
     case '/status': return cmdStatus(env, msg, origin);
     case '/invite': return cmdInvite(env, msg.chat.id, msg.from.id);
-    case '/digest': return cmdDigest(env, msg);
+    case '/digest': return cmdDigest(env, msg, args);
     case '/help': return send(env, msg.chat.id, HELP(env));
     case '/terms': return send(env, msg.chat.id, TERMS(env));
     case '/paysupport':

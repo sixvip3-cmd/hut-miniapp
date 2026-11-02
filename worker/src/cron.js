@@ -3,7 +3,7 @@
 // поэтому за раз отправляем не больше MAX_SENDS сообщений — остальное уйдёт следующими запусками.
 
 import { bot } from './telegram.js';
-import { DAY, isAdmin, markNotice, now, price } from './db.js';
+import { adminIds, DAY, isAdmin, markNotice, now, price } from './db.js';
 
 const MAX_SENDS = 35;
 const DIGEST_HOUR_UTC = 7; // 10:00 по Москве
@@ -92,21 +92,39 @@ function digestText(d, today) {
   return lines.join('\n');
 }
 
+const todayUtc = () => new Date(now() * 1000).toISOString().slice(0, 10);
+
+// Текст сегодняшнего дайджеста или null, если рассказать нечего.
+async function digestForToday(env) {
+  const res = await env.ASSETS.fetch(new Request('https://assets.local/data/digest.json'));
+  if (!res.ok) return null;
+  const d = await res.json();
+  const today = todayUtc();
+  if (!d.newCount && !d.up.length && !d.down.length && d.featured?.date !== today) return null;
+  return digestText(d, today);
+}
+
+// /digest test — прислать сегодняшний дайджест админу сразу.
+export async function sendDigestNow(env, chatId) {
+  const text = await digestForToday(env);
+  if (!text) return send(env, chatId, 'Сегодня в дайджесте пусто: нет новых карточек и заметных изменений цен.');
+  return send(env, chatId, text, keyboard(await getOrigin(env), '🏒 Открыть HUT Builder'));
+}
+
 async function digest(env, origin, budget) {
   const t = now();
-  const today = new Date(t * 1000).toISOString().slice(0, 10);
-  if (new Date(t * 1000).getUTCHours() < DIGEST_HOUR_UTC || budget <= 0) return 0;
+  const today = todayUtc();
+  const hour = Number(env.DIGEST_HOUR_UTC ?? DIGEST_HOUR_UTC);
+  if (new Date(t * 1000).getUTCHours() < hour || budget <= 0) return 0;
+  const text = await digestForToday(env);
+  if (!text) return 0;
 
-  const res = await env.ASSETS.fetch(new Request('https://assets.local/data/digest.json'));
-  if (!res.ok) return 0;
-  const d = await res.json();
-  if (!d.newCount && !d.up.length && !d.down.length && d.featured?.date !== today) return 0;
-  const text = digestText(d, today);
-
-  // Только тем, у кого есть доступ и включён дайджест.
+  // Тем, у кого есть доступ (подписка, пробный период, бонус или админ) и включён дайджест.
+  const admins = adminIds(env).filter(Number.isFinite).join(',') || '0';
   const rows = await env.DB.prepare(
-    `SELECT u.user_id FROM users u JOIN subscriptions s ON s.user_id = u.user_id
-     WHERE u.digest = 1 AND s.until > ? AND (u.last_digest IS NULL OR u.last_digest != ?) LIMIT ?`,
+    `SELECT u.user_id FROM users u LEFT JOIN subscriptions s ON s.user_id = u.user_id
+     WHERE u.digest = 1 AND (s.until > ? OR u.user_id IN (${admins}))
+       AND (u.last_digest IS NULL OR u.last_digest != ?) LIMIT ?`,
   ).bind(t, today, budget).all();
   let sent = 0;
   for (const r of rows.results) {
