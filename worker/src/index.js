@@ -8,6 +8,7 @@
 //   POST /api/trial            — включить пробный период (один раз на аккаунт)
 //   POST /api/pay              — платёж RollyPay по тарифу: ссылка + сообщение в бота с кнопкой «Оплатить»
 //   POST /webhooks/rollypay    — уведомления RollyPay об оплате и возвратах (worker/src/rollypay.js)
+//   GET  /terms, /privacy, /support — публичные документы (worker/src/legal.js)
 //   GET  /s/<токен>/...        — приложение и данные (только по действующему токену)
 //   GET  /s/<токен>/api/me     — подписка и реферальная ссылка для приложения
 //   POST /s/<токен>/api/share  — картинка состава → готовое сообщение для пересылки
@@ -22,6 +23,7 @@ import { ADMIN_COMMANDS, BOT_COMMANDS, botUsername, handleUpdate, refLink } from
 import { runScheduled, saveOrigin } from './cron.js';
 import { processBroadcasts } from './broadcast.js';
 import { createPayment, handleWebhook, payEnabled, sendPayMessage } from './rollypay.js';
+import { privacyPage, supportPage, termsPage } from './legal.js';
 import { isLifetime, planById, PLANS } from './plans.js';
 import {
   adminIds, hasAccess, now, referralStats, refBonusDays, startTrial, touchUser, trialAvailable, trialDays,
@@ -59,7 +61,7 @@ async function handleSession(request, env) {
 }
 
 // Платёж по тарифу: ссылка для приложения и сообщение в бота с кнопкой «Оплатить».
-async function handlePay(request, env) {
+async function handlePay(request, env, origin) {
   const { initData, plan: planId } = await request.json().catch(() => ({}));
   const user = await validateInitData(initData, env);
   if (!user) return json({ error: 'not_telegram' }, 401);
@@ -67,7 +69,7 @@ async function handlePay(request, env) {
   if (!planById(planId)) return json({ error: 'bad_plan' }, 400);
   await touchUser(env, user);
   const { plan, payUrl } = await createPayment(env, user.id, planId, await botUsername(env));
-  await sendPayMessage(env, user.id, plan, payUrl).catch(err => console.error('pay message', err.message));
+  await sendPayMessage(env, user.id, plan, payUrl, origin).catch(err => console.error('pay message', err.message));
   return json({ ok: true, url: payUrl });
 }
 
@@ -187,9 +189,13 @@ export default {
           headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' },
         });
       }
+      const doc = { '/terms': termsPage, '/privacy': privacyPage, '/support': supportPage }[pathname.replace(/\/$/, '')];
+      if (doc) {
+        return new Response(doc(env), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600' } });
+      }
       if (pathname === '/api/session' && request.method === 'POST') return handleSession(request, env);
       if (pathname === '/api/trial' && request.method === 'POST') return handleTrial(request, env);
-      if (pathname === '/api/pay' && request.method === 'POST') return handlePay(request, env);
+      if (pathname === '/api/pay' && request.method === 'POST') return handlePay(request, env, url.origin);
       if (pathname === '/webhooks/rollypay' && request.method === 'POST') return handleWebhook(request, env, url.origin);
       if (pathname.startsWith('/s/')) return handleApp(request, env, url);
 

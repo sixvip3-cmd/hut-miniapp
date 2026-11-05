@@ -60,7 +60,7 @@ export async function createPayment(env, userId, planId, botUsername) {
 }
 
 // Сообщение в бота с кнопкой оплаты.
-export async function sendPayMessage(env, chatId, plan, payUrl) {
+export async function sendPayMessage(env, chatId, plan, payUrl, origin = null) {
   await bot(env, 'sendMessage', {
     chat_id: chatId,
     parse_mode: 'HTML',
@@ -70,7 +70,9 @@ export async function sendPayMessage(env, chatId, plan, payUrl) {
       '',
       plan.days ? `Доступ на ${plan.days} дней откроется сразу после оплаты.` : 'Доступ навсегда откроется сразу после оплаты.',
       'Ссылка действует 30 минут.',
+      ...(origin ? ['', `Оплачивая, вы принимаете <a href="${origin}/terms">пользовательское соглашение</a> и <a href="${origin}/privacy">политику конфиденциальности</a>.`] : []),
     ].join('\n'),
+    disable_web_page_preview: true,
     reply_markup: { inline_keyboard: [[{ text: `💳 Оплатить ${rub(plan.rub)}`, url: payUrl }]] },
   });
 }

@@ -32,6 +32,13 @@ function shareUrl(link, text) {
 const send = (env, chatId, text, extra = {}) =>
   bot(env, 'sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true, ...extra });
 
+// Кнопки с документами: соглашение, политика, поддержка (нужны платёжному провайдеру и банку).
+const docsRow = origin => (origin ? [[
+  { text: '📄 Соглашение', url: `${origin}/terms` },
+  { text: '🔒 Конфиденциальность', url: `${origin}/privacy` },
+  { text: '💬 Поддержка', url: `${origin}/support` },
+]] : []);
+
 function appKeyboard(origin, text = '🏒 Открыть HUT Builder', more = []) {
   return { inline_keyboard: [[{ text, web_app: { url: `${origin}/` } }], ...more] };
 }
@@ -70,7 +77,7 @@ async function cmdStart(env, msg, arg, origin) {
   if (refBy && !existed) lines.push('', '👋 Вас пригласил друг — после оплаты он получит бонус.');
   await send(env, msg.chat.id, lines.join('\n'), {
     reply_markup: appKeyboard(origin, trial ? '🎁 Попробовать бесплатно' : '🏒 Открыть HUT Builder',
-      [[{ text: '💳 Тарифы', callback_data: 'plans' }, { text: `👥 Друг: +${refBonusDays(env)} дней`, callback_data: 'invite' }]]),
+      [[{ text: '💳 Тарифы', callback_data: 'plans' }, { text: `👥 Друг: +${refBonusDays(env)} дней`, callback_data: 'invite' }], ...docsRow(origin)]),
   });
 }
 
@@ -86,14 +93,14 @@ async function cmdStatus(env, msg, origin) {
 }
 
 // Кнопка тарифа: создаём платёж и присылаем сообщение с кнопкой «Оплатить».
-async function buyCallback(env, cq) {
+async function buyCallback(env, cq, origin) {
   const plan = planById(cq.data.slice(4));
   if (!plan) return;
   if (!payEnabled(env)) return send(env, cq.from.id, 'Оплата временно недоступна.');
   await touchUser(env, cq.from);
   try {
     const { payUrl } = await createPayment(env, cq.from.id, plan.id, await botUsername(env));
-    await sendPayMessage(env, cq.from.id, plan, payUrl);
+    await sendPayMessage(env, cq.from.id, plan, payUrl, origin);
   } catch (err) {
     console.error('buy', err.message);
     await send(env, cq.from.id, 'Не удалось создать платёж. Попробуйте ещё раз через минуту или напишите /paysupport.');
@@ -202,7 +209,7 @@ const HELP = env => [
   `/invite — пригласить друга (+${refBonusDays(env)} дней)`,
   '/digest — включить или выключить ежедневный дайджест',
   '/terms — условия подписки',
-  '/paysupport — помощь с оплатой',
+  '/paysupport — помощь с оплатой и поддержка',
   '',
   'В любом чате: <code>@бот имя игрока</code> — найти карточку и отправить её другу.',
 ].join('\n');
@@ -216,6 +223,8 @@ const TERMS = env => [
   trialDays(env) ? `• Пробный период — ${trialDays(env)} дня, один раз на аккаунт.` : '',
   '• Данные о карточках, ценах и комбинациях берутся с hutdb.app и обновляются каждый час; цены маркета вносит сообщество и они могут отличаться от игровых.',
   '• Если приложение не работает так, как описано, напишите /paysupport — разберёмся и при необходимости вернём деньги.',
+  '',
+  'Полный текст — в документах ниже.',
 ].filter(Boolean).join('\n');
 
 // ---------- Инлайн-поиск ----------
@@ -288,7 +297,7 @@ export async function handleUpdate(update, env, origin) {
     if (await broadcastCallback(env, cq)) return;
     if (await usersCallback(env, cq)) return;
     if (cq.data === 'invite') await cmdInvite(env, cq.from.id, cq.from.id);
-    if (cq.data?.startsWith('buy:')) await buyCallback(env, cq);
+    if (cq.data?.startsWith('buy:')) await buyCallback(env, cq, origin);
     if (cq.data === 'plans') await sendPlans(env, cq.from.id);
     return;
   }
@@ -332,10 +341,11 @@ export async function handleUpdate(update, env, origin) {
     case '/invite': return cmdInvite(env, msg.chat.id, msg.from.id);
     case '/digest': return cmdDigest(env, msg, args);
     case '/help': return send(env, msg.chat.id, HELP(env));
-    case '/terms': return send(env, msg.chat.id, TERMS(env));
+    case '/terms': return send(env, msg.chat.id, TERMS(env), { reply_markup: { inline_keyboard: docsRow(origin) } });
     case '/paysupport':
       return send(env, msg.chat.id,
-        `Вопросы по оплате: ${esc(env.SUPPORT_CONTACT || 'напишите сюда, мы ответим')}.\nУкажите дату и сумму платежа — проверим и при необходимости вернём деньги.`);
+        `Вопросы по оплате: ${esc(env.SUPPORT_CONTACT || 'напишите сюда, мы ответим')}.\nУкажите дату и сумму платежа — проверим и при необходимости вернём деньги.`,
+        { reply_markup: { inline_keyboard: docsRow(origin) } });
     case '/stats': return cmdStats(env, msg);
     case '/refund': return cmdRefund(env, msg, args);
     case '/gift': return cmdGift(env, msg, args);
@@ -354,7 +364,7 @@ export const BOT_COMMANDS = [
   { command: 'invite', description: 'Пригласить друга (+дни доступа)' },
   { command: 'digest', description: 'Ежедневный дайджест: вкл/выкл' },
   { command: 'help', description: 'Все команды' },
-  { command: 'terms', description: 'Условия подписки' },
+  { command: 'terms', description: 'Соглашение и политика конфиденциальности' },
   { command: 'paysupport', description: 'Помощь с оплатой' },
 ];
 

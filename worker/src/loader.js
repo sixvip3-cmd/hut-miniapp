@@ -60,6 +60,7 @@ export function loaderPage(env) {
   .bar i { display:block; width:40%; height:100%; background:var(--gold-grad); animation:slide 1.1s ease-in-out infinite; }
   @keyframes slide { from { transform:translateX(-100%); } to { transform:translateX(250%); } }
   .err { color:var(--red); }
+  .legal a { color:var(--gold); }
   [hidden] { display:none !important; }
 </style>
 </head>
@@ -95,6 +96,7 @@ export function loaderPage(env) {
     <button class="btn" id="trial" hidden></button>
     <button class="btn" id="pay" hidden></button>
     <div class="note" id="pay-note">Оплата в рублях: СБП или банковская карта. Без автопродления — платите только за выбранный срок.</div>
+    <div class="note legal">Нажимая «Оплатить», вы принимаете <a href="/terms" data-doc>пользовательское соглашение</a> и <a href="/privacy" data-doc>политику конфиденциальности</a>. Поддержка: <a href="/support" data-doc>контакты</a>.</div>
     <div class="note err" id="pay-error" hidden></div>
   </section>
 
@@ -177,6 +179,12 @@ export function loaderPage(env) {
     });
   });
   $('back').addEventListener('click', function () { polling++; show('s-pay'); });
+  // Документы открываем во внешнем браузере, чтобы не уходить из мини-аппа.
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('a[data-doc]');
+    if (!a) return;
+    e.preventDefault(); tg.openLink(location.origin + a.getAttribute('href'));
+  });
 
   $('trial').addEventListener('click', function () {
     var btn = this; btn.disabled = true;
