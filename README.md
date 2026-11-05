@@ -3,26 +3,29 @@
 Сборщик состава NHL HUT: line combos (Salary / OVR / AP), капитаны, тренеры, маркет с ценами.
 Данные (игроки, цены, комбинации, капитаны, тренеры) берутся с [hutdb.app](https://www.hutdb.app) и обновляются каждый час.
 
-**Открывается только внутри Telegram и только с подпиской за Telegram Stars** (30 дней, автопродление).
+**Открывается только внутри Telegram и только с оплаченным доступом.** Оплата в рублях (СБП, карты) через [RollyPay](docs/rollypay.md): 1 месяц — 99 ₽, 3 месяца — 249 ₽, 1 год — 799 ₽, навсегда — 1 990 ₽ (тарифы — `worker/src/plans.js`). Пробный период — 3 дня.
 
 ## Бот
 
-- `/start` — приветствие, пробный период (3 дня, один раз), кнопка «Пригласить друга»
+- `/start` — приветствие, пробный период (3 дня, один раз), кнопки «Тарифы» и «Пригласить друга»
+- `/buy` — тарифы: бот присылает сообщение с кнопкой «💳 Оплатить» (ссылка RollyPay); доступ открывается автоматически по вебхуку
 - `/status`, `/invite` (реферальная ссылка: +7 дней за друга, оформившего подписку), `/digest`, `/help`, `/terms`, `/paysupport`
-- админам (`ADMIN_IDS`, свои команды видны только им в меню): `/users` — все пользователи (фильтры, листание, поиск: `/users имя`), `/user <id | @username>` — профиль (доступ, оплаты, рефералы, активность, кнопки «+3/7/30 дней»), `/stats`, `/refund <user_id>`, `/gift <user_id> <дней>`, `/broadcast` — рассылка всем (ответом на сообщение; предпросмотр и подтверждение; по 40 сообщений в минуту; `/broadcast status`)
+- админам (`ADMIN_IDS`): `/stats`, `/refund <user_id>`, `/gift <user_id> <дней>`, `/broadcast` — рассылка всем (ответом на сообщение; предпросмотр и подтверждение; по 40 сообщений в минуту; `/broadcast status`)
 - инлайн-режим: `@бот имя игрока` в любом чате — карточка с ценой (включить в @BotFather → `/setinline`)
 - по расписанию (каждые 30 мин): напоминание за сутки до конца доступа, сообщение об окончании, ежедневный дайджест в 10:00 МСК
 - в приложении: «Поделиться составом» (картинка состава → окно пересылки Telegram) и «Пригласить друга»
 
-Настройки в `wrangler.toml` / Variables: `PRICE_STARS`, `TRIAL_DAYS`, `REF_BONUS_DAYS`, `ADMIN_IDS`, `SUPPORT_CONTACT`, `BOT_USERNAME`.
+Настройки в `wrangler.toml` / Variables: `ROLLYPAY_ENABLED` ("0" — спрятать оплату), `ROLLYPAY_TEST` ("1" — тестовые платежи), `TRIAL_DAYS`, `REF_BONUS_DAYS`, `ADMIN_IDS`, `SUPPORT_CONTACT`, `BOT_USERNAME`.
 
 ## Как устроено
 
 ```
 Telegram ──▶ Cloudflare Worker (worker/src)
               GET  /               загрузчик: «только в Telegram» / экран оплаты ⭐
-              POST /api/session    проверка подписи Telegram (initData) + подписки в D1
-                                   → ссылка /s/<токен>/ или счёт createInvoiceLink (XTR)
+              POST /api/session    проверка подписи Telegram (initData) + доступа в D1
+                                   → ссылка /s/<токен>/ или тарифы
+              POST /api/pay        платёж RollyPay → pay_url + сообщение в бота с кнопкой «Оплатить»
+              POST /webhooks/rollypay  оплата / возврат / чарджбек (подпись HMAC-SHA256)
               GET  /s/<токен>/…    приложение и данные — только по действующему токену
               POST /telegram/webhook  pre_checkout_query, successful_payment, возвраты,
                                       /start /status /paysupport /refund
@@ -40,8 +43,8 @@ Telegram ──▶ Cloudflare Worker (worker/src)
 
 1. **Cloudflare:** бесплатный аккаунт → *My Profile → API Tokens → Create Token → шаблон «Edit Cloudflare Workers»*, добавить право *D1: Edit*. Скопировать токен и *Account ID* (справа на странице *Workers & Pages*).
 2. **GitHub → Settings → Secrets and variables → Actions:**
-   - Secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `BOT_TOKEN` (от @BotFather).
-   - Variables (по желанию): `PRICE_STARS` (по умолчанию 150), `ADMIN_IDS` (ваш Telegram id — бесплатный доступ и `/refund`), `SUPPORT_CONTACT` (для `/paysupport`), `BOT_USERNAME`.
+   - Secrets: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `BOT_TOKEN` (от @BotFather), `ROLLYPAY_API_KEY`, `ROLLYPAY_SIGNING_SECRET` (касса RollyPay). В кассе RollyPay указать callback_url: `https://<воркер>/webhooks/rollypay`.
+   - Variables (по желанию): `ADMIN_IDS` (ваш Telegram id — бесплатный доступ и `/refund`), `SUPPORT_CONTACT` (для `/paysupport`), `BOT_USERNAME`.
 3. **Actions → Deploy & sync hutdb → Run workflow.** Workflow создаст базу, задеплоит воркер, задаст токен бота и сам настроит вебхук, кнопку меню и команды. Адрес мини-аппа будет в логе шага *Configure bot*.
 4. (Рекомендуется) В @BotFather → `/newapp` указать этот же адрес — получится ссылка `t.me/<бот>/<app>`.
 

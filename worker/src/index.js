@@ -1,11 +1,13 @@
 // HUT Builder — Cloudflare Worker.
 //
-// Приложение открывается только внутри Telegram и только с доступом (подписка за звёзды,
+// Приложение открывается только внутри Telegram и только с доступом (оплата в рублях через RollyPay,
 // пробный период или бонусные дни):
 //   GET  /                     — загрузчик: «только в Telegram», экран оплаты и пробного периода
 //   POST /api/session          — проверка подписи Telegram (initData) и доступа;
-//                                есть доступ → ссылка /s/<токен>/, нет → счёт в звёздах
+//                                есть доступ → ссылка /s/<токен>/, нет → тарифы
 //   POST /api/trial            — включить пробный период (один раз на аккаунт)
+//   POST /api/pay              — платёж RollyPay по тарифу: ссылка + сообщение в бота с кнопкой «Оплатить»
+//   POST /webhooks/rollypay    — уведомления RollyPay об оплате и возвратах (worker/src/rollypay.js)
 //   GET  /s/<токен>/...        — приложение и данные (только по действующему токену)
 //   GET  /s/<токен>/api/me     — подписка и реферальная ссылка для приложения
 //   POST /s/<токен>/api/share  — картинка состава → готовое сообщение для пересылки
@@ -19,8 +21,10 @@ import { loaderPage } from './loader.js';
 import { ADMIN_COMMANDS, BOT_COMMANDS, botUsername, handleUpdate, refLink } from './bot.js';
 import { runScheduled, saveOrigin } from './cron.js';
 import { processBroadcasts } from './broadcast.js';
+import { createPayment, handleWebhook, payEnabled, sendPayMessage } from './rollypay.js';
+import { isLifetime, planById, PLANS } from './plans.js';
 import {
-  adminIds, hasAccess, now, price, referralStats, refBonusDays, SUB_PERIOD, startTrial, touchUser, trialAvailable, trialDays,
+  adminIds, hasAccess, now, referralStats, refBonusDays, startTrial, touchUser, trialAvailable, trialDays,
 } from './db.js';
 
 const SESSION_TTL = 12 * 3600;
@@ -28,17 +32,6 @@ const MAX_SHARE_BYTES = 8 * 1024 * 1024;
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
-
-function invoiceParams(env, userId) {
-  return {
-    title: env.PRODUCT_TITLE || 'HUT Builder Premium',
-    description: env.PRODUCT_DESCRIPTION || 'Доступ к HUT Builder на 30 дней: состав, сыгранность, капитаны, тренеры и маркет.',
-    payload: `sub:${userId}`,
-    currency: 'XTR',
-    prices: [{ label: 'Подписка на 30 дней', amount: price(env) }],
-    subscription_period: SUB_PERIOD,
-  };
-}
 
 async function sessionResponse(env, userId, access) {
   const exp = Math.min(now() + SESSION_TTL, access.until);
@@ -55,11 +48,27 @@ async function handleSession(request, env) {
 
   const access = await hasAccess(env, user.id);
   if (access) return sessionResponse(env, user.id, access);
-  const [invoice, trial] = await Promise.all([
-    bot(env, 'createInvoiceLink', invoiceParams(env, user.id)),
-    trialAvailable(env, user.id),
-  ]);
-  return json({ ok: false, invoice, price: price(env), trial, trialDays: trialDays(env) });
+  return json({
+    ok: false,
+    plans: PLANS,
+    pay: payEnabled(env),
+    trial: await trialAvailable(env, user.id),
+    trialDays: trialDays(env),
+    support: env.SUPPORT_CONTACT || '',
+  });
+}
+
+// Платёж по тарифу: ссылка для приложения и сообщение в бота с кнопкой «Оплатить».
+async function handlePay(request, env) {
+  const { initData, plan: planId } = await request.json().catch(() => ({}));
+  const user = await validateInitData(initData, env);
+  if (!user) return json({ error: 'not_telegram' }, 401);
+  if (!payEnabled(env)) return json({ error: 'pay_disabled' }, 503);
+  if (!planById(planId)) return json({ error: 'bad_plan' }, 400);
+  await touchUser(env, user);
+  const { plan, payUrl } = await createPayment(env, user.id, planId, await botUsername(env));
+  await sendPayMessage(env, user.id, plan, payUrl).catch(err => console.error('pay message', err.message));
+  return json({ ok: true, url: payUrl });
 }
 
 async function handleTrial(request, env) {
@@ -104,7 +113,7 @@ async function handleMe(env, uid) {
     until: access?.until || 0,
     trial: !!access?.trial,
     admin: !!access?.admin,
-    price: price(env),
+    lifetime: isLifetime(access?.until || 0),
     refLink: link,
     refBonusDays: refBonusDays(env),
     invited: refs?.invited || 0,
@@ -162,7 +171,7 @@ async function handleSetup(env, origin) {
     await bot(env, 'setMyCommands', { commands: ADMIN_COMMANDS, scope: { type: 'chat', chat_id: id } }).catch(() => {});
   }
   await bot(env, 'setMyShortDescription', {
-    short_description: 'Конструктор состава NHL HUT: line combos, капитаны, тренеры и цены маркета. Подписка за ⭐',
+    short_description: 'Конструктор состава NHL HUT: line combos, капитаны, тренеры, Fantasy и цены маркета. 3 дня бесплатно',
   }).catch(() => {});
   const me = await bot(env, 'getMe');
   return json({ ok: true, bot: me.username, inline: !!me.supports_inline_queries, app: `${origin}/` });
@@ -174,12 +183,14 @@ export default {
     const { pathname } = url;
     try {
       if (pathname === '/' || pathname === '/index.html') {
-        return new Response(loaderPage(env, price(env)), {
+        return new Response(loaderPage(env), {
           headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' },
         });
       }
       if (pathname === '/api/session' && request.method === 'POST') return handleSession(request, env);
       if (pathname === '/api/trial' && request.method === 'POST') return handleTrial(request, env);
+      if (pathname === '/api/pay' && request.method === 'POST') return handlePay(request, env);
+      if (pathname === '/webhooks/rollypay' && request.method === 'POST') return handleWebhook(request, env, url.origin);
       if (pathname.startsWith('/s/')) return handleApp(request, env, url);
 
       if (pathname === '/telegram/webhook' && request.method === 'POST') {

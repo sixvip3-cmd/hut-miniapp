@@ -4,6 +4,9 @@
 
 import { bot } from './telegram.js';
 import { extendDays, isAdmin, now } from './db.js';
+import { PLANS } from './plans.js';
+
+const PLAN_TITLES = Object.fromEntries(PLANS.map(p => [p.id, p.title]));
 
 const PAGE = 10;
 const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
@@ -28,6 +31,7 @@ function status(env, u) {
   if (u.s_until <= now()) return { icon: '⛔️', text: `доступ закончился ${date(u.s_until)}` };
   if (u.s_charge === 'trial') return { icon: '🎁', text: `пробный период до ${date(u.s_until)}` };
   if (u.s_charge === 'bonus') return { icon: '➕', text: `бонусные дни до ${date(u.s_until)}` };
+  if (u.s_until >= 4102444800) return { icon: '👑', text: 'доступ навсегда' };
   return { icon: '💎', text: `подписка до ${date(u.s_until)}` };
 }
 
@@ -42,7 +46,8 @@ const FILTERS = {
 
 const BASE_SQL = `
   SELECT u.*, s.until AS s_until, s.charge_id AS s_charge, b.user_id IS NOT NULL AS blocked,
-    (SELECT COALESCE(SUM(amount), 0) FROM payments p WHERE p.user_id = u.user_id AND p.refunded = 0) AS stars
+    (SELECT COALESCE(SUM(amount), 0) FROM payments p WHERE p.user_id = u.user_id AND p.refunded = 0) AS stars,
+    (SELECT COALESCE(SUM(amount_rub), 0) FROM rub_payments r WHERE r.user_id = u.user_id AND r.applied = 1 AND r.test = 0) AS rub
   FROM users u
   LEFT JOIN subscriptions s ON s.user_id = u.user_id
   LEFT JOIN blocked b ON b.user_id = u.user_id`;
@@ -70,7 +75,7 @@ async function listView(env, filter = 'all', page = 0, search = '') {
 
   const lines = users.map((u, i) => {
     const st = status(env, u);
-    return `${page * PAGE + i + 1}. ${st.icon} <b>${nameOf(u)}</b>${u.stars ? ` · ${u.stars} ⭐` : ''}${u.blocked ? ' · 🚫' : ''}\n     <code>${u.user_id}</code> · был ${ago(u.last_seen)}`;
+    return `${page * PAGE + i + 1}. ${st.icon} <b>${nameOf(u)}</b>${u.rub ? ` · ${u.rub} ₽` : ''}${u.stars ? ` · ${u.stars} ⭐` : ''}${u.blocked ? ' · 🚫' : ''}\n     <code>${u.user_id}</code> · был ${ago(u.last_seen)}`;
   });
   const text = [
     `👥 <b>Пользователи</b>${search ? ` · поиск «${esc(search)}»` : ''} · ${f.label}: <b>${count.n}</b>`,
@@ -99,7 +104,9 @@ async function listView(env, filter = 'all', page = 0, search = '') {
 async function profileView(env, userId, back = 'ul:all:0') {
   const u = await env.DB.prepare(`${BASE_SQL} WHERE u.user_id = ?`).bind(userId).first();
   if (!u) return { text: `Пользователь <code>${esc(userId)}</code> не найден. Он должен хотя бы раз открыть бота.`, reply_markup: { inline_keyboard: [[{ text: '« К списку', callback_data: back }]] } };
-  const [pay, trial, refs, refBy] = await Promise.all([
+  const [rubPay, pay, trial, refs, refBy] = await Promise.all([
+    env.DB.prepare(`SELECT plan, amount_rub, status, applied, paid_at, created_at FROM rub_payments
+      WHERE user_id = ? AND test = 0 AND (applied = 1 OR status IN ('refunded', 'chargeback')) ORDER BY created_at DESC LIMIT 5`).bind(userId).all(),
     env.DB.prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(CASE WHEN refunded = 0 THEN amount END), 0) AS stars,
       SUM(refunded) AS refunds, MAX(created_at) AS last, MIN(created_at) AS first FROM payments WHERE user_id = ?`).bind(userId).first(),
     env.DB.prepare('SELECT started_at, until FROM trials WHERE user_id = ?').bind(userId).first(),
@@ -115,7 +122,9 @@ async function profileView(env, userId, back = 'ul:all:0') {
     '',
     `<b>Доступ:</b> ${st.icon} ${st.text}`,
     `<b>Пробный период:</b> ${trial ? `взят ${date(trial.started_at)}` : 'не брал'}`,
-    `<b>Оплаты:</b> ${pay.n ? `${pay.n} шт. · <b>${pay.stars} ⭐</b>${pay.refunds ? ` · возвратов: ${pay.refunds}` : ''}\n     первая ${date(pay.first)}, последняя ${date(pay.last)}` : 'не было'}`,
+    `<b>Оплаты в рублях:</b> ${(rubPay.results || []).length ? '\n' + rubPay.results.map(r =>
+      `     ${r.applied ? '✅' : '↩️'} ${PLAN_TITLES[r.plan] || r.plan} — ${r.amount_rub} ₽ · ${date(r.paid_at || r.created_at)}${r.applied ? '' : ` (${r.status})`}`).join('\n') : 'не было'}`,
+    pay.n ? `<b>Оплаты звёздами (раньше):</b> ${pay.n} шт. · <b>${pay.stars} ⭐</b>${pay.refunds ? ` · возвратов: ${pay.refunds}` : ''}` : null,
     '',
     `<b>Пригласил:</b> ${refs.invited || 0}${refs.invited ? ` (оплатили ${refs.paid || 0})` : ''}`,
     `<b>Пришёл от:</b> ${refBy ? `${nameOf(refBy)} · <code>${refBy.user_id}</code>` : u.ref_by ? `<code>${u.ref_by}</code>` : 'сам'}`,

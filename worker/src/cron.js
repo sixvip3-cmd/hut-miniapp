@@ -3,11 +3,11 @@
 // поэтому за раз отправляем не больше MAX_SENDS сообщений — остальное уйдёт следующими запусками.
 
 import { bot } from './telegram.js';
-import { adminIds, DAY, isAdmin, markNotice, now, price } from './db.js';
+import { adminIds, DAY, isAdmin, markNotice, now } from './db.js';
 
 const MAX_SENDS = 35;
 const DIGEST_HOUR_UTC = 7; // 10:00 по Москве
-const RENEWAL_GRACE = 2 * 3600; // ждём автопродление Telegram перед сообщением «доступ закончился»
+const RENEWAL_GRACE = 2 * 3600; // ждём автопродление прежних подписок за звёзды перед «доступ закончился»
 
 const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const date = t => new Date(t * 1000).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' });
@@ -22,8 +22,10 @@ export async function saveOrigin(env, origin) {
   await env.DB.prepare("INSERT INTO meta (k, v) VALUES ('origin', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").bind(origin).run();
 }
 
-function keyboard(origin, text) {
-  return origin ? { inline_keyboard: [[{ text, web_app: { url: `${origin}/` } }]] } : undefined;
+function keyboard(origin, text, plans = false) {
+  const rows = origin ? [[{ text, web_app: { url: `${origin}/` } }]] : [];
+  if (plans) rows.push([{ text: '💳 Тарифы — от 99 ₽', callback_data: 'plans' }]);
+  return rows.length ? { inline_keyboard: rows } : undefined;
 }
 
 async function send(env, chatId, text, reply_markup) {
@@ -51,13 +53,14 @@ async function reminders(env, origin, budget) {
   for (const s of soon.results) {
     if (sent >= budget) return sent;
     if (isAdmin(env, s.user_id) || !(await markNotice(env, s.user_id, 'soon', s.until))) continue;
-    const paid = s.charge_id && s.charge_id !== 'trial' && s.charge_id !== 'bonus';
+    // Прежние подписки за звёзды продлевает сам Telegram; остальным предлагаем тарифы в рублях.
+    const stars = s.charge_id && !['trial', 'bonus'].includes(s.charge_id) && !s.charge_id.startsWith('rub:');
     const text = s.charge_id === 'trial'
-      ? `🎁 Пробный период HUT Builder заканчивается <b>${date(s.until)}</b>.\nОформите подписку за ⭐ ${price(env)}, чтобы не потерять доступ.`
-      : paid
-        ? `🔔 <b>${date(s.until)}</b> подписка HUT Builder продлится автоматически за ⭐ ${price(env)}.\nЕсли вы отменяли автопродление — оформите подписку заново в приложении.`
-        : `🔔 Доступ к HUT Builder заканчивается <b>${date(s.until)}</b>.\nПродлить можно в приложении за ⭐ ${price(env)}.`;
-    if (await send(env, s.user_id, text, keyboard(origin, paid ? '🏒 Открыть HUT Builder' : `⭐ Оформить за ${price(env)}`))) sent++;
+      ? `🎁 Пробный период HUT Builder заканчивается <b>${date(s.until)}</b>.\nВыберите тариф — от 99 ₽ в месяц, чтобы не потерять доступ.`
+      : stars
+        ? `🔔 <b>${date(s.until)}</b> подписка HUT Builder продлится автоматически.\nЕсли вы отменяли автопродление — продлить можно в рублях: /buy`
+        : `🔔 Доступ к HUT Builder заканчивается <b>${date(s.until)}</b>.\nПродлите заранее — дни добавятся к текущему сроку.`;
+    if (await send(env, s.user_id, text, keyboard(origin, '🏒 Открыть HUT Builder', !stars))) sent++;
   }
 
   // Доступ закончился (и автопродления не было).
@@ -68,9 +71,9 @@ async function reminders(env, origin, budget) {
     if (sent >= budget) return sent;
     if (isAdmin(env, s.user_id) || !(await markNotice(env, s.user_id, 'ended', s.until))) continue;
     const text = s.charge_id === 'trial'
-      ? `Пробный период HUT Builder закончился. Понравилось? Подписка — ⭐ ${price(env)} за 30 дней.`
-      : `Доступ к HUT Builder закончился. Вернуть его можно в приложении за ⭐ ${price(env)}.`;
-    if (await send(env, s.user_id, text, keyboard(origin, `⭐ Оформить за ${price(env)}`))) sent++;
+      ? 'Пробный период HUT Builder закончился. Понравилось? Доступ — от 99 ₽ в месяц, а навсегда — 1 990 ₽.'
+      : 'Доступ к HUT Builder закончился. Вернуть его можно в рублях — от 99 ₽ в месяц.';
+    if (await send(env, s.user_id, text, keyboard(origin, '🏒 Открыть HUT Builder', true))) sent++;
   }
   return sent;
 }

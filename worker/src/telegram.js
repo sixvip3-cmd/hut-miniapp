@@ -14,12 +14,14 @@ async function hmac(key, data) {
 const toHex = bytes => [...bytes].map(b => b.toString(16).padStart(2, '0')).join('');
 
 // Сравнение строк за постоянное время.
-function safeEqual(a, b) {
+export function safeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
+
+export const hmacHex = async (key, data) => toHex(await hmac(key, data));
 
 // Секреты, производные от токена бота: отдельные ключи не нужно хранить.
 export async function derivedSecret(env, purpose) {

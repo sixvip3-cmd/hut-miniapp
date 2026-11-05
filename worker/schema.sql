@@ -76,3 +76,22 @@ CREATE TABLE IF NOT EXISTS blocked (
   user_id INTEGER PRIMARY KEY,
   at      INTEGER
 );
+
+-- Оплата в рублях через RollyPay (тарифы — worker/src/plans.js).
+CREATE TABLE IF NOT EXISTS rub_payments (
+  payment_id   TEXT PRIMARY KEY,      -- id платежа RollyPay
+  order_id     TEXT UNIQUE NOT NULL,  -- наш id заказа
+  user_id      INTEGER NOT NULL,
+  plan         TEXT NOT NULL,         -- m1 | m3 | y1 | life
+  amount_rub   INTEGER NOT NULL,
+  status       TEXT NOT NULL,         -- created | processing | paid | expired | canceled | refunded | chargeback
+  test         INTEGER DEFAULT 0,
+  pay_url      TEXT,
+  applied      INTEGER DEFAULT 0,     -- доступ по платежу выдан (1) или снят/не выдавался (0)
+  until_before INTEGER,               -- откуда считали дни (для отката при возврате)
+  until_after  INTEGER,
+  created_at   INTEGER,
+  paid_at      INTEGER,
+  updated_at   INTEGER
+);
+CREATE INDEX IF NOT EXISTS rub_payments_user ON rub_payments (user_id, created_at);

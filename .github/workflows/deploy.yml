@@ -1,8 +1,9 @@
 name: Deploy & sync hutdb
 
 # Приложение живёт на Cloudflare Workers и открывается только из Telegram.
-# Нужны секреты репозитория: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, BOT_TOKEN.
-# Настройки (Variables): PRICE_STARS, TRIAL_DAYS, REF_BONUS_DAYS, ADMIN_IDS, SUPPORT_CONTACT, BOT_USERNAME.
+# Нужны секреты репозитория: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, BOT_TOKEN,
+# для оплаты — ROLLYPAY_API_KEY, ROLLYPAY_SIGNING_SECRET.
+# Настройки (Variables): TRIAL_DAYS, REF_BONUS_DAYS, ADMIN_IDS, SUPPORT_CONTACT, BOT_USERNAME, ROLLYPAY_ENABLED, ROLLYPAY_TEST.
 
 on:
   push:
@@ -90,18 +91,30 @@ jobs:
       - name: Deploy worker
         if: steps.cf.outputs.ready == 'true'
         env:
-          PRICE_STARS: ${{ vars.PRICE_STARS }}
           ADMIN_IDS: ${{ vars.ADMIN_IDS }}
           SUPPORT_CONTACT: ${{ vars.SUPPORT_CONTACT }}
           BOT_USERNAME: ${{ vars.BOT_USERNAME }}
           TRIAL_DAYS: ${{ vars.TRIAL_DAYS }}
           REF_BONUS_DAYS: ${{ vars.REF_BONUS_DAYS }}
+          ROLLYPAY_ENABLED: ${{ vars.ROLLYPAY_ENABLED }}
+          ROLLYPAY_TEST: ${{ vars.ROLLYPAY_TEST }}
         run: |
           ARGS=()
-          for v in PRICE_STARS ADMIN_IDS SUPPORT_CONTACT BOT_USERNAME TRIAL_DAYS REF_BONUS_DAYS; do
+          for v in ADMIN_IDS SUPPORT_CONTACT BOT_USERNAME TRIAL_DAYS REF_BONUS_DAYS ROLLYPAY_ENABLED ROLLYPAY_TEST; do
             [ -n "${!v}" ] && ARGS+=(--var "$v:${!v}")
           done
           npx wrangler deploy "${ARGS[@]}" | tee deploy.log
+
+      # Ключи RollyPay: кладём в секреты воркера при каждом деплое (если заданы в GitHub).
+      - name: RollyPay secrets
+        if: steps.cf.outputs.ready == 'true'
+        env:
+          ROLLYPAY_API_KEY: ${{ secrets.ROLLYPAY_API_KEY }}
+          ROLLYPAY_SIGNING_SECRET: ${{ secrets.ROLLYPAY_SIGNING_SECRET }}
+        run: |
+          for s in ROLLYPAY_API_KEY ROLLYPAY_SIGNING_SECRET; do
+            if [ -n "${!s}" ]; then echo "${!s}" | npx wrangler secret put "$s"; else echo "::notice::$s не задан — оплата будет скрыта"; fi
+          done
 
       # Токен бота, вебхук, кнопка меню и команды — при каждом push и ручном запуске.
       - name: Configure bot

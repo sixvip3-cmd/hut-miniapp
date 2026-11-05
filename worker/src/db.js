@@ -1,10 +1,9 @@
 // Работа с базой D1: подписки, пробный период, пользователи, рефералы, статистика.
 
 export const DAY = 24 * 3600;
-export const SUB_PERIOD = 30 * DAY; // Telegram допускает подписки за звёзды только на 30 дней
+export const SUB_PERIOD = 30 * DAY; // прежние подписки за звёзды (только продления уже оформленных)
 export const now = () => Math.floor(Date.now() / 1000);
 
-export const price = env => Math.max(1, Number(env.PRICE_STARS) || 150);
 export const trialDays = env => Math.max(0, Number(env.TRIAL_DAYS ?? 3));
 export const refBonusDays = env => Math.max(0, Number(env.REF_BONUS_DAYS ?? 7));
 export const adminIds = env => String(env.ADMIN_IDS || '').split(/[\s,]+/).filter(Boolean).map(Number);
@@ -52,7 +51,8 @@ export async function extendDays(env, userId, days) {
 export async function trialAvailable(env, userId) {
   if (!trialDays(env)) return false;
   const used = await env.DB.prepare(
-    'SELECT (SELECT COUNT(*) FROM trials WHERE user_id = ?1) + (SELECT COUNT(*) FROM payments WHERE user_id = ?1) AS n',
+    `SELECT (SELECT COUNT(*) FROM trials WHERE user_id = ?1) + (SELECT COUNT(*) FROM payments WHERE user_id = ?1)
+       + (SELECT COUNT(*) FROM rub_payments WHERE user_id = ?1 AND applied = 1) AS n`,
   ).bind(userId).first();
   return !used?.n;
 }
@@ -67,7 +67,7 @@ export async function startTrial(env, userId) {
   return until;
 }
 
-// ---------- Платежи ----------
+// ---------- Платежи звёздами (только продления подписок, оформленных до перехода на рубли) ----------
 // Записывает платёж один раз (повторная доставка апдейта ничего не задвоит) и продлевает доступ.
 // Возвращает { until, first } или null, если платёж уже был учтён.
 export async function recordPayment(env, userId, sp) {
@@ -126,17 +126,23 @@ export async function markNotice(env, userId, kind, ref) {
 export async function stats(env) {
   const t = now();
   const q = (sql, ...args) => env.DB.prepare(sql).bind(...args).first();
-  const [subs, trials, users, newDay, newWeek, s1, s7, s30, all, refs] = await Promise.all([
-    q("SELECT COUNT(*) AS n FROM subscriptions WHERE until > ? AND charge_id != 'trial'", t),
+  const rubSince = since => q(
+    "SELECT COUNT(*) AS n, COALESCE(SUM(amount_rub), 0) AS rub FROM rub_payments WHERE applied = 1 AND test = 0 AND paid_at > ?", since);
+  const [subs, trials, users, newDay, newWeek, s1, s7, s30, all, refs, lifetime, plans, refundsRub] = await Promise.all([
+    q("SELECT COUNT(*) AS n FROM subscriptions WHERE until > ? AND charge_id NOT IN ('trial', 'bonus')", t),
     q("SELECT COUNT(*) AS n FROM subscriptions WHERE until > ? AND charge_id = 'trial'", t),
     q('SELECT COUNT(*) AS n FROM users'),
     q('SELECT COUNT(*) AS n FROM users WHERE first_seen > ?', t - DAY),
     q('SELECT COUNT(*) AS n FROM users WHERE first_seen > ?', t - 7 * DAY),
-    q('SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS stars FROM payments WHERE refunded = 0 AND created_at > ?', t - DAY),
-    q('SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS stars FROM payments WHERE refunded = 0 AND created_at > ?', t - 7 * DAY),
-    q('SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS stars FROM payments WHERE refunded = 0 AND created_at > ?', t - 30 * DAY),
-    q('SELECT COUNT(*) AS n, COALESCE(SUM(amount), 0) AS stars, SUM(refunded) AS refunds FROM payments'),
+    rubSince(t - DAY),
+    rubSince(t - 7 * DAY),
+    rubSince(t - 30 * DAY),
+    rubSince(0),
     q('SELECT COUNT(*) AS invited, COALESCE(SUM(ref_rewarded), 0) AS paid FROM users WHERE ref_by IS NOT NULL'),
+    q('SELECT COUNT(*) AS n FROM subscriptions WHERE until >= 4102444800'),
+    env.DB.prepare("SELECT plan, COUNT(*) AS n, SUM(amount_rub) AS rub FROM rub_payments WHERE applied = 1 AND test = 0 GROUP BY plan").all(),
+    q("SELECT COUNT(*) AS n FROM rub_payments WHERE status IN ('refunded', 'chargeback') AND test = 0"),
   ]);
-  return { subs: subs.n, trials: trials.n, users: users.n, newDay: newDay.n, newWeek: newWeek.n, s1, s7, s30, all, refs };
+  return { subs: subs.n, trials: trials.n, users: users.n, newDay: newDay.n, newWeek: newWeek.n, s1, s7, s30, all, refs,
+    lifetime: lifetime.n, plans: plans.results || [], refunds: refundsRub.n };
 }

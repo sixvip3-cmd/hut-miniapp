@@ -1327,7 +1327,7 @@ async function loadMe() {
   if (me.admin) tag.textContent = 'ADMIN';
   else if (me.until) {
     const d = new Date(me.until * 1000).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
-    tag.textContent = me.trial ? `ТРИАЛ ДО ${d}` : `ДО ${d}`;
+    tag.textContent = me.lifetime ? 'НАВСЕГДА' : me.trial ? `ТРИАЛ ДО ${d}` : `ДО ${d}`;
     tag.classList.toggle('trial', me.trial);
   }
   $('#invite-bonus').textContent = me.refBonusDays ? `+${me.refBonusDays} дней за друга` : '';

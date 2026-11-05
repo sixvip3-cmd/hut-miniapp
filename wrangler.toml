@@ -1,4 +1,4 @@
-# Cloudflare Worker: HUT Builder доступен только из Telegram и только с подпиской за звёзды.
+# Cloudflare Worker: HUT Builder доступен только из Telegram и только с оплаченным доступом (рубли через RollyPay).
 name = "hut-builder"
 main = "worker/src/index.js"
 compatibility_date = "2026-09-01"
@@ -20,12 +20,12 @@ database_name = "hut-builder"
 database_id = "00000000-0000-0000-0000-000000000000" # подставляется при деплое
 
 [vars]
-PRICE_STARS = "150"           # цена подписки на 30 дней в звёздах
 TRIAL_DAYS = "3"              # пробный период (0 — выключить)
 REF_BONUS_DAYS = "7"          # бонус пригласившему, когда друг оформил подписку
-PRODUCT_TITLE = "HUT Builder Premium"
+ROLLYPAY_ENABLED = "1"        # "0" — спрятать оплату везде (выключатель)
+ROLLYPAY_TEST = "0"           # "1" — тестовые платежи RollyPay (без реальных денег)
 ADMIN_IDS = ""                # Telegram id через запятую: бесплатный доступ и команда /refund
 SUPPORT_CONTACT = ""          # контакт для /paysupport, например @username
 BOT_USERNAME = ""             # username бота без @ — для кнопки «Открыть в Telegram»
 
-# Секрет BOT_TOKEN задаётся через `wrangler secret put BOT_TOKEN` (в CI — из секретов GitHub).
+# Секреты BOT_TOKEN, ROLLYPAY_API_KEY, ROLLYPAY_SIGNING_SECRET задаются через `wrangler secret put` (в CI — из секретов GitHub).

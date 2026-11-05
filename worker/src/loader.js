@@ -1,9 +1,9 @@
-// Страница-загрузчик: проверяет, что открыто в Telegram, и показывает оплату звёздами.
-// Само приложение отдаётся только после того, как бот подтвердил оплату.
+// Страница-загрузчик: проверяет, что открыто в Telegram, и показывает тарифы (оплата в рублях через RollyPay).
+// Само приложение отдаётся только после того, как сервер получил подтверждение оплаты.
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-export function loaderPage(env, price) {
+export function loaderPage(env) {
   const botLink = env.BOT_USERNAME ? `https://t.me/${esc(env.BOT_USERNAME.replace(/^@/, ''))}` : '';
   return `<!doctype html>
 <html lang="ru">
@@ -44,8 +44,18 @@ export function loaderPage(env, price) {
     font:600 17px/1 var(--display); letter-spacing:1.5px; text-transform:uppercase; text-decoration:none; box-shadow:0 12px 30px -10px rgba(227,189,106,.8); }
   .btn:active { transform:scale(.98); }
   .btn[disabled] { opacity:.6; }
-  #trial + #pay { margin-top:10px; background:rgba(255,255,255,.06); color:var(--text); border:1px solid rgba(227,189,106,.4); box-shadow:none; }
   .note { font-size:12px; color:var(--muted); margin-top:12px; }
+  .plans { display:grid; gap:8px; margin:0 0 14px; }
+  .plan { position:relative; display:flex; align-items:center; gap:12px; width:100%; padding:13px 14px; text-align:left; cursor:pointer;
+    border-radius:14px; border:1.5px solid rgba(255,255,255,.1); background:rgba(255,255,255,.03); color:var(--text); font:inherit; }
+  .plan.on { border-color:var(--gold); background:rgba(227,189,106,.1); }
+  .plan i { width:18px; height:18px; flex-shrink:0; border-radius:50%; border:2px solid rgba(255,255,255,.3); }
+  .plan.on i { border:5px solid var(--gold); }
+  .plan span { flex:1; } .plan span b { display:block; font:600 17px/1.2 var(--display); letter-spacing:.6px; }
+  .plan span small { color:var(--muted); font-size:12px; }
+  .plan em { font:600 20px/1 var(--display); font-style:normal; color:var(--gold); white-space:nowrap; }
+  .plan .hit { position:absolute; top:-8px; right:12px; padding:3px 8px; border-radius:999px; background:#ff4d4d; color:#fff; font:600 10px/1 var(--display); letter-spacing:1px; }
+  .ghost { margin-top:10px; background:transparent !important; color:var(--muted) !important; border:1px solid rgba(255,255,255,.12) !important; box-shadow:none !important; }
   .bar { width:150px; height:3px; margin:6px auto 14px; border-radius:3px; background:rgba(255,255,255,.08); overflow:hidden; }
   .bar i { display:block; width:40%; height:100%; background:var(--gold-grad); animation:slide 1.1s ease-in-out infinite; }
   @keyframes slide { from { transform:translateX(-100%); } to { transform:translateX(250%); } }
@@ -73,93 +83,127 @@ export function loaderPage(env, price) {
     <h1>HUT <span>Builder</span></h1>
     <p>Конструктор состава NHL HUT</p>
     <div class="card">
-      <div class="price"><b>⭐ ${price}</b><span>/ 30 дней</span></div>
       <ul>
         <li>Все 8000+ карточек с картинками и ценами маркета</li>
         <li>Настоящие line combos: OVR, Salary, AP</li>
         <li>Капитаны и тренеры с подсчётом бонусов</li>
-        <li>Лучшие партнёры для каждого игрока</li>
-        <li>Цены обновляются каждый час</li>
+        <li>Лучшие тройки и пары в 1 тап</li>
+        <li>Fantasy: кто забил в НХЛ · цены маркета каждый час</li>
       </ul>
     </div>
+    <div class="plans" id="plans"></div>
     <button class="btn" id="trial" hidden></button>
-    <button class="btn" id="pay">Оплатить ⭐ ${price}</button>
-    <div class="note">Оплата звёздами Telegram. Подписка продлевается каждые 30 дней, отменить можно в настройках Telegram.</div>
+    <button class="btn" id="pay" hidden></button>
+    <div class="note" id="pay-note">Оплата в рублях: СБП или банковская карта. Без автопродления — платите только за выбранный срок.</div>
     <div class="note err" id="pay-error" hidden></div>
+  </section>
+
+  <section id="s-wait" hidden>
+    <div class="mark pulse">H</div>
+    <h1>Ждём <span>оплату</span></h1>
+    <p>Оплатите на открывшейся странице — ссылка также пришла в чат с ботом. Доступ откроется здесь автоматически.</p>
+    <div class="bar"><i></i></div>
+    <button class="btn" id="check">Я оплатил — проверить</button>
+    <button class="btn ghost" id="back">Выбрать другой тариф</button>
+    <div class="note err" id="wait-error" hidden></div>
   </section>
 </div>
 <script>
 (function () {
   var tg = window.Telegram && window.Telegram.WebApp;
   var show = function (id) {
-    ['s-loading', 's-outside', 's-pay'].forEach(function (s) { document.getElementById(s).hidden = s !== id; });
+    ['s-loading', 's-outside', 's-pay', 's-wait'].forEach(function (s) { document.getElementById(s).hidden = s !== id; });
   };
-  var invoice = null;
+  var $ = function (id) { return document.getElementById(id); };
+  var plans = [], selected = 'y1', payUrl = null, polling = 0;
+  var rub = function (n) { return n.toLocaleString('ru-RU') + ' ₽'; };
 
   if (!tg || !tg.initData) { show('s-outside'); return; }
   tg.ready(); tg.expand();
   try { tg.setHeaderColor('#06080c'); tg.setBackgroundColor('#06080c'); } catch (e) {}
 
-  function session() {
-    return fetch('/api/session', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData: tg.initData })
-    }).then(function (r) { return r.json(); });
+  function post(path, body) {
+    body = body || {}; body.initData = tg.initData;
+    return fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function (r) { return r.json(); });
   }
+  function enter(res) { location.replace(res.url + location.hash); }
+  function fail(id, text) { var el = $(id); el.textContent = text; el.hidden = !text; }
 
-  function enter(res) {
-    location.replace(res.url + location.hash);
+  function renderPlans() {
+    $('plans').innerHTML = plans.map(function (p) {
+      return '<button class="plan' + (p.id === selected ? ' on' : '') + '" data-plan="' + p.id + '">' +
+        (p.hit ? '<span class="hit">ВЫГОДНО</span>' : '') + '<i></i><span><b>' + p.title + '</b>' +
+        (p.note ? '<small>' + p.note + '</small>' : '') + '</span><em>' + rub(p.rub) + '</em></button>';
+    }).join('');
+    var p = plans.find(function (x) { return x.id === selected; });
+    $('pay').textContent = 'Оплатить ' + rub(p.rub);
   }
-
-  // После оплаты ждём, пока бот получит подтверждение от Telegram и откроет доступ.
-  function waitForPayment(attempt) {
-    document.getElementById('loading-text').textContent = 'Бот проверяет оплату…';
-    show('s-loading');
-    session().then(function (res) {
-      if (res.ok) return enter(res);
-      if (attempt < 40) return setTimeout(function () { waitForPayment(attempt + 1); }, 1500);
-      invoice = res.invoice || invoice;
-      show('s-pay');
-      fail('Оплата ещё не подтверждена. Если звёзды списались — напишите боту /paysupport.');
-    }).catch(function () { setTimeout(function () { waitForPayment(attempt + 1); }, 2000); });
-  }
-
-  function fail(text) {
-    var el = document.getElementById('pay-error');
-    el.textContent = text; el.hidden = false;
-  }
-
-  document.getElementById('trial').addEventListener('click', function () {
-    var btn = this; btn.disabled = true;
-    fetch('/api/trial', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ initData: tg.initData })
-    }).then(function (r) { return r.json(); }).then(function (res) {
-      if (res.ok) return enter(res);
-      btn.hidden = true;
-      fail('Пробный период уже использован.');
-    }).catch(function () { btn.disabled = false; fail('Нет связи с сервером. Попробуйте ещё раз.'); });
+  $('plans').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-plan]');
+    if (!b) return;
+    selected = b.getAttribute('data-plan'); renderPlans();
+    try { tg.HapticFeedback.selectionChanged(); } catch (err) {}
   });
 
-  document.getElementById('pay').addEventListener('click', function () {
-    if (!invoice) return;
-    document.getElementById('pay-error').hidden = true;
-    tg.openInvoice(invoice, function (status) {
-      if (status === 'paid') waitForPayment(0);
-      else if (status === 'failed') fail('Оплата не прошла. Попробуйте ещё раз.');
+  // Ждём подтверждение оплаты: опрашиваем сервер каждые 3 секунды до 15 минут.
+  function poll(n) {
+    var id = ++polling;
+    (function tick(i) {
+      if (id !== polling) return;
+      post('/api/session').then(function (res) {
+        if (res.ok) return enter(res);
+        if (i < 300) setTimeout(function () { tick(i + 1); }, 3000);
+      }).catch(function () { setTimeout(function () { tick(i + 1); }, 4000); });
+    })(n || 0);
+  }
+
+  $('pay').addEventListener('click', function () {
+    var btn = this; btn.disabled = true; fail('pay-error', '');
+    post('/api/pay', { plan: selected }).then(function (res) {
+      btn.disabled = false;
+      if (!res.ok) return fail('pay-error', res.error === 'pay_disabled' ? 'Оплата временно недоступна.' : 'Не удалось создать платёж. Попробуйте ещё раз.');
+      payUrl = res.url;
+      tg.openLink(payUrl);
+      show('s-wait'); poll(0);
+    }).catch(function () { btn.disabled = false; fail('pay-error', 'Нет связи с сервером. Попробуйте ещё раз.'); });
+  });
+
+  $('check').addEventListener('click', function () {
+    fail('wait-error', '');
+    post('/api/session').then(function (res) {
+      if (res.ok) return enter(res);
+      fail('wait-error', 'Оплата ещё не пришла. Обычно это занимает до минуты. Если деньги списались, а доступа нет — напишите боту /paysupport.');
     });
   });
+  $('back').addEventListener('click', function () { polling++; show('s-pay'); });
 
-  session().then(function (res) {
+  $('trial').addEventListener('click', function () {
+    var btn = this; btn.disabled = true;
+    post('/api/trial').then(function (res) {
+      if (res.ok) return enter(res);
+      btn.hidden = true;
+      fail('pay-error', 'Пробный период уже использован.');
+    }).catch(function () { btn.disabled = false; fail('pay-error', 'Нет связи с сервером. Попробуйте ещё раз.'); });
+  });
+
+  post('/api/session').then(function (res) {
     if (res.ok) return enter(res);
     if (res.error === 'not_telegram') return show('s-outside');
-    invoice = res.invoice;
+    plans = res.plans || [];
     if (res.trial) {
-      var t = document.getElementById('trial');
-      t.textContent = '🎁 ' + res.trialDays + ' дня бесплатно';
-      t.hidden = false;
+      $('trial').textContent = '🎁 ' + res.trialDays + ' дня бесплатно';
+      $('trial').hidden = false;
+      $('pay').className = 'btn ghost';
+    }
+    if (res.pay && plans.length) { renderPlans(); $('pay').hidden = false; }
+    else {
+      $('plans').hidden = true;
+      $('pay-note').textContent = 'Оплата временно недоступна.' + (res.support ? ' Вопросы: ' + res.support : '');
     }
     show('s-pay');
   }).catch(function () {
-    document.getElementById('loading-text').textContent = 'Нет связи с сервером. Попробуйте позже.';
+    $('loading-text').textContent = 'Нет связи с сервером. Попробуйте позже.';
   });
 })();
 </script>
