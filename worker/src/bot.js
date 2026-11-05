@@ -30,6 +30,13 @@ function shareUrl(link, text) {
 const send = (env, chatId, text, extra = {}) =>
   bot(env, 'sendMessage', { chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true, ...extra });
 
+// Кнопки с документами: соглашение, политика, поддержка (нужны платёжному провайдеру и банку).
+const docsRow = origin => (origin ? [[
+  { text: '📄 Соглашение', url: `${origin}/terms` },
+  { text: '🔒 Конфиденциальность', url: `${origin}/privacy` },
+  { text: '💬 Поддержка', url: `${origin}/support` },
+]] : []);
+
 function appKeyboard(origin, text = '🏒 Открыть HUT Builder', more = []) {
   return { inline_keyboard: [[{ text, web_app: { url: `${origin}/` } }], ...more] };
 }
@@ -56,7 +63,7 @@ async function cmdStart(env, msg, arg, origin) {
   if (refBy && !existed) lines.push('', '👋 Вас пригласил друг — после оплаты он получит бонус.');
   await send(env, msg.chat.id, lines.join('\n'), {
     reply_markup: appKeyboard(origin, trial ? '🎁 Попробовать бесплатно' : '🏒 Открыть HUT Builder',
-      [[{ text: `👥 Пригласить друга (+${refBonusDays(env)} дней)`, callback_data: 'invite' }]]),
+      [[{ text: `👥 Пригласить друга (+${refBonusDays(env)} дней)`, callback_data: 'invite' }], ...docsRow(origin)]),
   });
 }
 
@@ -281,10 +288,11 @@ export async function handleUpdate(update, env, origin) {
     case '/invite': return cmdInvite(env, msg.chat.id, msg.from.id);
     case '/digest': return cmdDigest(env, msg, args);
     case '/help': return send(env, msg.chat.id, HELP(env));
-    case '/terms': return send(env, msg.chat.id, TERMS(env));
+    case '/terms': return send(env, msg.chat.id, TERMS(env), { reply_markup: { inline_keyboard: docsRow(origin) } });
     case '/paysupport':
       return send(env, msg.chat.id,
-        `Вопросы по оплате: ${esc(env.SUPPORT_CONTACT || 'напишите сюда, мы ответим')}.\nУкажите дату платежа — проверим и при необходимости вернём звёзды.`);
+        `Вопросы по оплате: ${esc(env.SUPPORT_CONTACT || 'напишите сюда, мы ответим')}.\nУкажите дату платежа — проверим и при необходимости вернём звёзды.`,
+        { reply_markup: { inline_keyboard: docsRow(origin) } });
     case '/stats': return cmdStats(env, msg);
     case '/refund': return cmdRefund(env, msg, args);
     case '/gift': return cmdGift(env, msg, args);
@@ -302,7 +310,7 @@ export const BOT_COMMANDS = [
   { command: 'invite', description: 'Пригласить друга (+дни доступа)' },
   { command: 'digest', description: 'Ежедневный дайджест: вкл/выкл' },
   { command: 'help', description: 'Все команды' },
-  { command: 'terms', description: 'Условия подписки' },
+  { command: 'terms', description: 'Соглашение и политика конфиденциальности' },
   { command: 'paysupport', description: 'Помощь с оплатой' },
 ];
 

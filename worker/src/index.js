@@ -16,6 +16,7 @@
 
 import { bot, derivedSecret, signSession, validateInitData, verifySession } from './telegram.js';
 import { loaderPage } from './loader.js';
+import { privacyPage, supportPage, termsPage } from './legal.js';
 import { ADMIN_COMMANDS, BOT_COMMANDS, botUsername, handleUpdate, refLink } from './bot.js';
 import { runScheduled, saveOrigin } from './cron.js';
 import { processBroadcasts } from './broadcast.js';
@@ -177,6 +178,10 @@ export default {
         return new Response(loaderPage(env, price(env)), {
           headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex' },
         });
+      }
+      const doc = { '/terms': termsPage, '/privacy': privacyPage, '/support': supportPage }[pathname.replace(/\/$/, '')];
+      if (doc) {
+        return new Response(doc(env), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600' } });
       }
       if (pathname === '/api/session' && request.method === 'POST') return handleSession(request, env);
       if (pathname === '/api/trial' && request.method === 'POST') return handleTrial(request, env);
