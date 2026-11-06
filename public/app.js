@@ -1204,11 +1204,30 @@ function showView(btn) {
   window.scrollTo(0, 0);
 }
 
-function placeLens(btn, x = null, stretch = 1) {
-  const w = btn.offsetWidth;
-  const left = x == null ? btn.offsetLeft : Math.max(tabButtons[0].offsetLeft, Math.min(x - w / 2, tabButtons.at(-1).offsetLeft));
-  lens.style.width = `${w}px`;
-  lens.style.transform = `translateX(${left}px) scale(${stretch}, ${2 - Math.min(stretch, 1.2)})`;
+function placeLens(btn) {
+  lens.style.width = `${btn.offsetWidth}px`;
+  lens.style.transform = `translateX(${btn.offsetLeft}px)`;
+}
+
+// Во время движения линзу ведёт requestAnimationFrame: она плавно догоняет палец (без CSS-переходов,
+// которые перезапускаются на каждом касании и дают рывки), а растяжение сглажено по скорости.
+const lensMotion = { x: 0, tx: 0, s: 1, ts: 1, v: 0, raf: null };
+const lensBounds = () => [tabButtons[0].offsetLeft, tabButtons.at(-1).offsetLeft];
+function lensFrame() {
+  const m = lensMotion;
+  m.x += (m.tx - m.x) * 0.38;
+  m.s += (m.ts - m.s) * 0.2;
+  lens.style.transform = `translateX(${m.x.toFixed(2)}px) scale(${m.s.toFixed(3)}, ${(1 - (m.s - 1) * 0.45).toFixed(3)})`;
+  m.raf = tabDrag.id != null ? requestAnimationFrame(lensFrame) : null;
+}
+function lensFollow(x) {
+  const w = tabButtons[0].offsetWidth;
+  const [min, max] = lensBounds();
+  lensMotion.tx = Math.max(min, Math.min(x - w / 2, max));
+}
+function currentLensX() {
+  const m = new DOMMatrix(getComputedStyle(lens).transform);
+  return m.m41;
 }
 
 const tabAt = x => tabButtons.reduce((best, b) => (Math.abs(b.offsetLeft + b.offsetWidth / 2 - x) < Math.abs(best.offsetLeft + best.offsetWidth / 2 - x) ? b : best));
@@ -1220,31 +1239,40 @@ tabbar.addEventListener('pointerdown', e => {
   tabDrag.id = e.pointerId; tabDrag.startX = localX(e); tabDrag.moved = false;
   tabDrag.over = tabAt(tabDrag.startX); tabDrag.lastX = tabDrag.startX; tabDrag.lastT = e.timeStamp;
   tabbar.setPointerCapture(e.pointerId);
-  tabbar.classList.add('pressing');
+  // подхватываем линзу с того места, где она сейчас (даже если ещё летит)
+  lensMotion.x = currentLensX(); lensMotion.s = 1; lensMotion.v = 0; lensMotion.ts = 1.06;
+  tabbar.classList.add('pressing', 'dragging');
   tabButtons.forEach(b => b.classList.toggle('lens-over', b === tabDrag.over));
-  placeLens(tabDrag.over, tabDrag.startX, 1.06);
+  lensFollow(tabDrag.startX);
+  if (!lensMotion.raf) lensMotion.raf = requestAnimationFrame(lensFrame);
 });
 
 tabbar.addEventListener('pointermove', e => {
   if (e.pointerId !== tabDrag.id) return;
   const x = localX(e);
   if (!tabDrag.moved && Math.abs(x - tabDrag.startX) < 6) return;
-  if (!tabDrag.moved) { tabDrag.moved = true; tabbar.classList.add('dragging'); }
-  // растяжение от скорости пальца
-  const v = Math.abs(x - tabDrag.lastX) / Math.max(e.timeStamp - tabDrag.lastT, 1);
+  tabDrag.moved = true;
+  const dt = Math.max(e.timeStamp - tabDrag.lastT, 8);
+  const inst = Math.abs(x - tabDrag.lastX) / dt;
   tabDrag.lastX = x; tabDrag.lastT = e.timeStamp;
+  lensMotion.v = lensMotion.v * 0.75 + inst * 0.25;
+  lensMotion.ts = 1.08 + Math.min(lensMotion.v * 0.1, 0.16);
   const over = tabAt(x);
   if (over !== tabDrag.over) {
     tabDrag.over = over;
     tabButtons.forEach(b => b.classList.toggle('lens-over', b === over));
     try { tg?.HapticFeedback?.selectionChanged(); } catch {}
   }
-  placeLens(over, x, 1.1 + Math.min(v * 0.12, 0.22));
+  lensFollow(x);
 });
 
 function endTabDrag(e, cancel = false) {
   if (e.pointerId !== tabDrag.id) return;
   tabDrag.id = null;
+  if (lensMotion.raf) { cancelAnimationFrame(lensMotion.raf); lensMotion.raf = null; }
+  // фиксируем текущее положение, затем включаем пружинный переход к вкладке
+  lens.style.transform = `translateX(${lensMotion.x}px) scale(${lensMotion.s}, ${1 - (lensMotion.s - 1) * 0.45})`;
+  void lens.offsetWidth;
   tabbar.classList.remove('pressing', 'dragging');
   tabButtons.forEach(b => b.classList.remove('lens-over'));
   const target = cancel ? tabButtons.find(b => b.classList.contains('active')) : tabDrag.over;

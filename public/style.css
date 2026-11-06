@@ -619,7 +619,7 @@ input:focus, select:focus { border-color: rgba(154,217,255,.7); box-shadow: inse
     radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,.55), rgba(255,255,255,0) 60%),
     linear-gradient(180deg, rgba(255,255,255,.32), rgba(154,217,255,.18));
 }
-.tabbar.dragging .tab-lens { transition: transform .08s linear, width .3s ease; }
+.tabbar.dragging .tab-lens { transition: width .3s ease, box-shadow .2s, background .2s; }
 .tabbar.dragging button.active:not(.lens-over) { color: var(--muted); }
 .tabbar.dragging button.active:not(.lens-over) svg { filter: none; }
 .tabbar button.lens-over { color: #fff; }
