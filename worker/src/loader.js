@@ -1,6 +1,38 @@
 // Страница-загрузчик: проверяет, что открыто в Telegram, и показывает тарифы (оплата в рублях через RollyPay).
 // Само приложение отдаётся только после того, как сервер получил подтверждение оплаты.
 
+// Логотип встроен в страницу: файлы приложения отдаются только после входа.
+// У каждой копии свои id градиентов — иначе копии в скрытых блоках не рисуются.
+const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="72" height="72">
+  <defs>
+    <linearGradient id="lg-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5cb8ff"/><stop offset=".55" stop-color="#1f5fe0"/><stop offset="1" stop-color="#0a2a7a"/>
+    </linearGradient>
+    <linearGradient id="lg-ice" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/><stop offset=".6" stop-color="#e4f5ff"/><stop offset="1" stop-color="#a9dcff"/>
+    </linearGradient>
+    <linearGradient id="lg-shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset=".8" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="lg-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.5" stdDeviation="1.4" flood-color="#021038" flood-opacity=".55"/></filter>
+  </defs>
+  <rect width="72" height="72" rx="18" fill="url(#lg-bg)"/>
+  <path d="M6 18 C6 10 10 6 18 6 H46 C54 6 58 10 58 18 V24 C46 30 18 30 6 24 Z" fill="url(#lg-shine)"/>
+  <rect x=".75" y=".75" width="62.5" height="62.5" rx="17.3" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="1.5"/>
+  <g filter="url(#lg-shadow)" fill="url(#lg-ice)">
+    <!-- левая клюшка: древко + крюк влево -->
+    <path d="M19 11.5 h7 v31.5 c0 3.6-1.9 6.1-5.6 6.6 l-10.3 1.3 c-2.3.3-3.1-2.5-1-3.3 l8.3-3.1 c1-.4 1.6-1.2 1.6-2.4 Z"/>
+    <!-- правая клюшка: древко + крюк вправо -->
+    <path d="M38 11.5 h7 v29.1 c0 1.2.6 2 1.6 2.4 l8.3 3.1 c2.1.8 1.3 3.6-1 3.3 l-10.3-1.3 c-3.7-.5-5.6-3-5.6-6.6 Z"/>
+    <!-- перекладина H — шайба -->
+    <rect x="24.5" y="26.5" width="15" height="7.5" rx="3.75"/>
+  </g>
+  <!-- ледяная искра -->
+  <path d="M51 9.5 l1.2 3.3 3.3 1.2 -3.3 1.2 -1.2 3.3 -1.2 -3.3 -3.3 -1.2 3.3 -1.2 Z" fill="#fff"/>
+</svg>`;
+let logoN = 0;
+const logo = () => LOGO_SVG.replaceAll('lg-', `lg${++logoN}-`);
+
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 export function loaderPage(env) {
@@ -11,50 +43,56 @@ export function loaderPage(env) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="robots" content="noindex">
+<meta name="theme-color" content="#030a1c">
 <title>HUT Builder</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600;700&display=swap">
 <style>
-  :root { --bg:#06080c; --text:#f4f1ea; --muted:#8d93a1; --gold:#e3bd6a; --green:#4ade80; --red:#f87171;
-    --gold-grad:linear-gradient(135deg,#f6dc9a 0%,#e3bd6a 40%,#b8892b 100%); --display:"Oswald","Inter",sans-serif; }
+  :root { --bg:#030a1c; --text:#f3f8ff; --muted:#9db1d1; --gold:#9ad9ff; --green:#4ade80; --red:#f87171; --ink:#04132f;
+    --gold-grad:linear-gradient(180deg,rgba(255,255,255,.75) 0%,rgba(255,255,255,0) 52%),linear-gradient(135deg,#e8f7ff 0%,#9ad9ff 45%,#4f8dff 100%);
+    --glass:linear-gradient(180deg,rgba(255,255,255,.13),rgba(255,255,255,.04)); --display:"Oswald","Inter",sans-serif; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { margin:0; min-height:100%; }
   body { color:var(--text); font:15px/1.45 "Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; -webkit-font-smoothing:antialiased;
-    background:radial-gradient(120% 60% at 50% -10%,rgba(227,189,106,.18),transparent 60%),var(--bg); min-height:100vh;
+    background:radial-gradient(90% 55% at 15% -5%,rgba(92,184,255,.3),transparent 60%),radial-gradient(70% 45% at 100% 40%,rgba(59,130,246,.22),transparent 65%),
+      linear-gradient(180deg,#051231 0%,#030a1c 60%,#020716 100%); background-attachment:fixed; min-height:100vh;
     display:flex; align-items:center; justify-content:center; padding:24px 18px calc(24px + env(safe-area-inset-bottom)); }
   .wrap { width:100%; max-width:420px; text-align:center; }
-  .mark { width:72px; height:72px; margin:0 auto 18px; border-radius:20px; display:grid; place-items:center;
-    background:var(--gold-grad); color:#1a1205; font:700 30px/1 var(--display); box-shadow:0 14px 40px -10px rgba(227,189,106,.7); }
+  .mark { width:72px; height:72px; margin:0 auto 18px; border-radius:20px; display:grid; place-items:center; box-shadow:0 14px 40px -10px rgba(59,130,246,.9); }
+  .mark svg { display:block; }
   .pulse { animation:pulse 1.4s ease-in-out infinite; }
   @keyframes pulse { 50% { transform:scale(.94); } }
   h1 { margin:0 0 6px; font:600 28px/1.1 var(--display); letter-spacing:2px; text-transform:uppercase; }
-  h1 span { color:var(--gold); }
+  h1 span { background:linear-gradient(135deg,#fff,#9ad9ff 55%,#4f8dff); -webkit-background-clip:text; background-clip:text; color:transparent; }
   p { margin:0 0 18px; color:var(--muted); }
-  .card { text-align:left; padding:18px; border-radius:18px; margin:18px 0;
-    background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.02)); border:1px solid rgba(255,255,255,.08); }
+  .card { text-align:left; padding:18px; border-radius:22px; margin:18px 0; background:var(--glass); border:1px solid rgba(255,255,255,.2);
+    backdrop-filter:blur(22px) saturate(180%); -webkit-backdrop-filter:blur(22px) saturate(180%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.38),0 18px 40px -18px rgba(0,8,32,.85); }
   .price { display:flex; align-items:baseline; gap:8px; margin-bottom:14px; }
-  .price b { font:600 40px/1 var(--display); background:var(--gold-grad); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .price b { font:600 40px/1 var(--display); background:linear-gradient(135deg,#fff,#9ad9ff); -webkit-background-clip:text; background-clip:text; color:transparent; }
   .price span { color:var(--muted); }
   ul { list-style:none; margin:0; padding:0; display:grid; gap:10px; }
   li { display:flex; gap:10px; align-items:flex-start; font-size:14px; }
   li::before { content:"✓"; color:var(--gold); font-weight:700; }
-  .btn { display:block; width:100%; border:0; cursor:pointer; padding:17px; border-radius:16px; background:var(--gold-grad); color:#1a1205;
-    font:600 17px/1 var(--display); letter-spacing:1.5px; text-transform:uppercase; text-decoration:none; box-shadow:0 12px 30px -10px rgba(227,189,106,.8); }
+  .btn { display:block; width:100%; border:0; cursor:pointer; padding:17px; border-radius:16px; background:var(--gold-grad); color:var(--ink);
+    font:600 17px/1 var(--display); letter-spacing:1.5px; text-transform:uppercase; text-decoration:none; border-radius:18px;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.9),inset 0 -2px 6px rgba(29,78,216,.35),0 12px 30px -10px rgba(59,130,246,.9); }
   .btn:active { transform:scale(.98); }
   .btn[disabled] { opacity:.6; }
   .note { font-size:12px; color:var(--muted); margin-top:12px; }
   .plans { display:grid; gap:8px; margin:0 0 14px; }
   .plan { position:relative; display:flex; align-items:center; gap:12px; width:100%; padding:13px 14px; text-align:left; cursor:pointer;
-    border-radius:14px; border:1.5px solid rgba(255,255,255,.1); background:rgba(255,255,255,.03); color:var(--text); font:inherit; }
-  .plan.on { border-color:var(--gold); background:rgba(227,189,106,.1); }
+    border-radius:18px; border:1.5px solid rgba(255,255,255,.16); background:var(--glass); color:var(--text); font:inherit;
+    backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); box-shadow:inset 0 1px 0 rgba(255,255,255,.25); }
+  .plan.on { border-color:rgba(154,217,255,.8); background:linear-gradient(180deg,rgba(154,217,255,.26),rgba(255,255,255,.05)); box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 10px 24px -12px rgba(59,130,246,.9); }
   .plan i { width:18px; height:18px; flex-shrink:0; border-radius:50%; border:2px solid rgba(255,255,255,.3); }
   .plan.on i { border:5px solid var(--gold); }
   .plan span { flex:1; } .plan span b { display:block; font:600 17px/1.2 var(--display); letter-spacing:.6px; }
   .plan span small { color:var(--muted); font-size:12px; }
-  .plan em { font:600 20px/1 var(--display); font-style:normal; color:var(--gold); white-space:nowrap; }
-  .plan .hit { position:absolute; top:-8px; right:12px; padding:3px 8px; border-radius:999px; background:#ff4d4d; color:#fff; font:600 10px/1 var(--display); letter-spacing:1px; }
+  .plan em { font:600 20px/1 var(--display); font-style:normal; color:#e4f5ff; white-space:nowrap; }
+  .plan .hit { position:absolute; top:-8px; right:12px; padding:3px 8px; border-radius:999px; background:linear-gradient(135deg,#ff6b6b,#e11d48); color:#fff; font:600 10px/1 var(--display); letter-spacing:1px; }
   .ghost { margin-top:10px; background:transparent !important; color:var(--muted) !important; border:1px solid rgba(255,255,255,.12) !important; box-shadow:none !important; }
   .bar { width:150px; height:3px; margin:6px auto 14px; border-radius:3px; background:rgba(255,255,255,.08); overflow:hidden; }
   .bar i { display:block; width:40%; height:100%; background:var(--gold-grad); animation:slide 1.1s ease-in-out infinite; }
@@ -67,20 +105,20 @@ export function loaderPage(env) {
 <body>
 <div class="wrap">
   <section id="s-loading">
-    <div class="mark pulse">H</div>
+    <div class="mark pulse">${logo()}</div>
     <div class="bar"><i></i></div>
     <p id="loading-text">Проверяем доступ…</p>
   </section>
 
   <section id="s-outside" hidden>
-    <div class="mark">H</div>
+    <div class="mark">${logo()}</div>
     <h1>HUT <span>Builder</span></h1>
     <p>Приложение работает только внутри Telegram.</p>
     ${botLink ? `<a class="btn" href="${botLink}">Открыть в Telegram</a>` : ''}
   </section>
 
   <section id="s-pay" hidden>
-    <div class="mark">H</div>
+    <div class="mark">${logo()}</div>
     <h1>HUT <span>Builder</span></h1>
     <p>Конструктор состава NHL HUT</p>
     <div class="card">
@@ -101,7 +139,7 @@ export function loaderPage(env) {
   </section>
 
   <section id="s-wait" hidden>
-    <div class="mark pulse">H</div>
+    <div class="mark pulse">${logo()}</div>
     <h1>Ждём <span>оплату</span></h1>
     <p>Оплатите на открывшейся странице — ссылка также пришла в чат с ботом. Доступ откроется здесь автоматически.</p>
     <div class="bar"><i></i></div>
@@ -122,7 +160,7 @@ export function loaderPage(env) {
 
   if (!tg || !tg.initData) { show('s-outside'); return; }
   tg.ready(); tg.expand();
-  try { tg.setHeaderColor('#06080c'); tg.setBackgroundColor('#06080c'); } catch (e) {}
+  try { tg.setHeaderColor('#030a1c'); tg.setBackgroundColor('#030a1c'); } catch (e) {}
 
   function post(path, body) {
     body = body || {}; body.initData = tg.initData;

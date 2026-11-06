@@ -26,8 +26,8 @@ function page(title, body, env) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} — HUT Builder</title>
 <style>
-  :root { --bg:#06080c; --text:#e9e6df; --muted:#9097a4; --gold:#e3bd6a; --line:rgba(255,255,255,.09); }
-  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bg:#faf8f4; --text:#1d1b17; --muted:#5f636c; --gold:#9a6f17; --line:rgba(0,0,0,.1); } }
+  :root { --bg:#030a1c; --text:#eaf2ff; --muted:#9db1d1; --gold:#9ad9ff; --line:rgba(255,255,255,.09); }
+  @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) { --bg:#f5f9ff; --text:#0b1730; --muted:#5f636c; --gold:#1d4ed8; --line:rgba(0,0,0,.1); } }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Inter",sans-serif; }
   main { max-width:760px; margin:0 auto; padding:28px 16px 64px; }

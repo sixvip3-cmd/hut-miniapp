@@ -3,10 +3,10 @@ tg?.ready();
 tg?.expand();
 try {
   if (tg?.isVersionAtLeast?.('6.1')) {
-    tg.setHeaderColor('#06080c');
-    tg.setBackgroundColor('#06080c');
+    tg.setHeaderColor('#030a1c');
+    tg.setBackgroundColor('#030a1c');
   }
-  if (tg?.isVersionAtLeast?.('7.10')) tg.setBottomBarColor('#06080c');
+  if (tg?.isVersionAtLeast?.('7.10')) tg.setBottomBarColor('#030a1c');
 } catch {}
 
 // Только внутри Telegram и только своей сессией: сервер подставляет id пользователя сессии,
@@ -1369,26 +1369,26 @@ async function renderLineupImage() {
   await Promise.all([document.fonts.load('600 40px Oswald'), document.fonts.load('600 20px Inter')]).catch(() => {});
 
   // фон
-  ctx.fillStyle = '#06080c'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#030a1c'; ctx.fillRect(0, 0, W, H);
   const glow = ctx.createRadialGradient(W / 2, -80, 40, W / 2, -80, 900);
-  glow.addColorStop(0, 'rgba(227,189,106,.28)'); glow.addColorStop(1, 'rgba(227,189,106,0)');
+  glow.addColorStop(0, 'rgba(92,184,255,.32)'); glow.addColorStop(1, 'rgba(92,184,255,0)');
   ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
   const gold = ctx.createLinearGradient(0, 0, W, 0);
-  gold.addColorStop(0, '#f6dc9a'); gold.addColorStop(.5, '#e3bd6a'); gold.addColorStop(1, '#b8892b');
+  gold.addColorStop(0, '#ffffff'); gold.addColorStop(.5, '#9ad9ff'); gold.addColorStop(1, '#3b82f6');
 
   // шапка
   const sum = state.lastSum || { ovr: 0, salary: 0, salaryCap: CHEMISTRY.baseSalaryCap, boost: { AP: 0 } };
-  ctx.fillStyle = '#f4f1ea'; ctx.font = '600 44px Oswald'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#f3f8ff'; ctx.font = '600 44px Oswald'; ctx.textBaseline = 'alphabetic';
   ctx.fillText('HUT', PAD, 92);
   ctx.fillStyle = gold; ctx.fillText('BUILDER', PAD + ctx.measureText('HUT ').width, 92);
-  ctx.fillStyle = '#8d93a1'; ctx.font = '500 22px Inter';
+  ctx.fillStyle = '#9db1d1'; ctx.font = '500 22px Inter';
   const capName = state.byId[state.captain]?.name, coachName = coachById(state.coach)?.name;
   ctx.fillText([capName && `Капитан: ${capName}`, coachName && `Тренер: ${coachName}`].filter(Boolean).join('   ·   ') || 'Мой состав NHL HUT', PAD, 130);
   const stats = [['OVR', String(sum.ovr || '—')], ['ЗАРПЛАТА', `$${sum.salary.toFixed(1)}M / $${sum.salaryCap}M`], ['AP', `${sum.boost.AP} / ${CHEMISTRY.maxAp}`]];
   let sx = PAD;
   for (const [label, value] of stats) {
-    ctx.fillStyle = '#8d93a1'; ctx.font = '600 20px Oswald'; ctx.fillText(label, sx, 182);
-    ctx.fillStyle = label === 'OVR' ? gold : '#f4f1ea'; ctx.font = '600 44px Oswald'; ctx.fillText(value, sx, 228);
+    ctx.fillStyle = '#9db1d1'; ctx.font = '600 20px Oswald'; ctx.fillText(label, sx, 182);
+    ctx.fillStyle = label === 'OVR' ? gold : '#f3f8ff'; ctx.font = '600 44px Oswald'; ctx.fillText(value, sx, 228);
     sx += Math.max(ctx.measureText(value).width, 120) + 60;
   }
 
@@ -1403,7 +1403,7 @@ async function renderLineupImage() {
   const drawLine = (line, x, y) => {
     const t = state.lastSum?.lines[line.id]?.total || { OVR: 0, SAL: 0, AP: 0 };
     ctx.fillStyle = gold; ctx.fillRect(x, y + 8, 5, 24);
-    ctx.fillStyle = '#f4f1ea'; ctx.font = '600 26px Oswald'; ctx.fillText(line.label.toUpperCase(), x + 16, y + 30);
+    ctx.fillStyle = '#f3f8ff'; ctx.font = '600 26px Oswald'; ctx.fillText(line.label.toUpperCase(), x + 16, y + 30);
     const bonus = [t.OVR && `+${t.OVR} OVR`, t.SAL && `+$${t.SAL}M`, t.AP && `+${t.AP} AP`].filter(Boolean).join('  ');
     if (bonus) {
       ctx.fillStyle = '#4ade80'; ctx.font = '600 22px Oswald';
@@ -1418,8 +1418,8 @@ async function renderLineupImage() {
         ctx.save(); ctx.clip(); ctx.drawImage(img, cx, cy, CW, CH); ctx.restore();
       } else {
         ctx.fillStyle = 'rgba(255,255,255,.04)'; ctx.fill();
-        ctx.setLineDash([8, 6]); ctx.strokeStyle = 'rgba(227,189,106,.35)'; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([]);
-        ctx.fillStyle = p ? '#f4f1ea' : '#5d6370'; ctx.font = '600 22px Oswald'; ctx.textAlign = 'center';
+        ctx.setLineDash([8, 6]); ctx.strokeStyle = 'rgba(154,217,255,.4)'; ctx.lineWidth = 2; ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = p ? '#f3f8ff' : '#62779c'; ctx.font = '600 22px Oswald'; ctx.textAlign = 'center';
         ctx.fillText(p ? `${p.ovr} ${surname(p.name)}` : slot, cx + CW / 2, cy + CH / 2);
         ctx.textAlign = 'left';
       }
@@ -1429,7 +1429,7 @@ async function renderLineupImage() {
   LINES.filter(l => l.cat === 'F').forEach((l, i) => drawLine(l, leftX, HEADER + i * ROW));
   LINES.filter(l => l.cat !== 'F').forEach((l, i) => drawLine(l, rightX, HEADER + i * ROW));
 
-  ctx.fillStyle = '#5d6370'; ctx.font = '500 22px Inter';
+  ctx.fillStyle = '#62779c'; ctx.font = '500 22px Inter';
   const username = state.me?.refLink?.match(/t\.me\/([^?]+)/)?.[1];
   ctx.fillText(username ? `Собери свой состав — @${username}` : 'HUT Builder — Telegram Mini App', PAD, H - 40);
 
