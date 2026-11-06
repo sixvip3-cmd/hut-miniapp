@@ -1,27 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <defs>
-    <linearGradient id="lg-bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#5cb8ff"/><stop offset=".55" stop-color="#1f5fe0"/><stop offset="1" stop-color="#0a2a7a"/>
-    </linearGradient>
-    <linearGradient id="lg-ice" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff"/><stop offset=".6" stop-color="#e4f5ff"/><stop offset="1" stop-color="#a9dcff"/>
-    </linearGradient>
-    <linearGradient id="lg-shine" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity=".5"/><stop offset=".8" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
-    <filter id="lg-shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="1.5" stdDeviation="1.4" flood-color="#021038" flood-opacity=".55"/></filter>
-  </defs>
-  <rect width="64" height="64" rx="18" fill="url(#lg-bg)"/>
-  <path d="M6 18 C6 10 10 6 18 6 H46 C54 6 58 10 58 18 V24 C46 30 18 30 6 24 Z" fill="url(#lg-shine)"/>
-  <rect x=".75" y=".75" width="62.5" height="62.5" rx="17.3" fill="none" stroke="#fff" stroke-opacity=".45" stroke-width="1.5"/>
-  <g filter="url(#lg-shadow)" fill="url(#lg-ice)">
-    <!-- левая клюшка: древко + крюк влево -->
-    <path d="M19 11.5 h7 v31.5 c0 3.6-1.9 6.1-5.6 6.6 l-10.3 1.3 c-2.3.3-3.1-2.5-1-3.3 l8.3-3.1 c1-.4 1.6-1.2 1.6-2.4 Z"/>
-    <!-- правая клюшка: древко + крюк вправо -->
-    <path d="M38 11.5 h7 v29.1 c0 1.2.6 2 1.6 2.4 l8.3 3.1 c2.1.8 1.3 3.6-1 3.3 l-10.3-1.3 c-3.7-.5-5.6-3-5.6-6.6 Z"/>
-    <!-- перекладина H — шайба -->
-    <rect x="24.5" y="26.5" width="15" height="7.5" rx="3.75"/>
-  </g>
-  <!-- ледяная искра -->
-  <path d="M51 9.5 l1.2 3.3 3.3 1.2 -3.3 1.2 -1.2 3.3 -1.2 -3.3 -3.3 -1.2 3.3 -1.2 Z" fill="#fff"/>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"><defs><linearGradient id="lg-bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3d8bff"/><stop offset=".55" stop-color="#1546c4"/><stop offset="1" stop-color="#081e63"/></linearGradient><linearGradient id="lg-ice" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset=".65" stop-color="#e6f6ff"/><stop offset="1" stop-color="#a7dbff"/></linearGradient><linearGradient id="lg-sh" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".42"/><stop offset=".75" stop-color="#fff" stop-opacity="0"/></linearGradient><filter id="lg-ds" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="1.6" stdDeviation="1.5" flood-color="#010c33" flood-opacity=".6"/></filter></defs><rect width="64" height="64" rx="16" fill="url(#lg-bg)"/>
+<g filter="url(#lg-ds)">
+<g fill="url(#lg-ice)">
+<g transform="rotate(-38 32 32)"><rect x="30.2" y="4" width="3.6" height="44" rx="1.6"/><rect x="29.6" y="3.4" width="4.8" height="5.6" rx="1.8" fill="#0a2470" stroke="url(#lg-ice)" stroke-width="1"/><path d="M30.2 46h3.6v1.6c0 2.4 1.2 3.4 3.4 3.4h7.2c1.9 0 2.2 2.5.3 2.9l-8.6 1.6c-3.9.7-5.9-1.6-5.9-5.4z"/></g>
+<g transform="rotate(38 32 32)"><rect x="30.2" y="4" width="3.6" height="44" rx="1.6"/><rect x="29.6" y="3.4" width="4.8" height="5.6" rx="1.8" fill="#0a2470" stroke="url(#lg-ice)" stroke-width="1"/><path d="M33.8 46h-3.6v1.6c0 2.4-1.2 3.4-3.4 3.4h-7.2c-1.9 0-2.2 2.5-.3 2.9l8.6 1.6c3.9.7 5.9-1.6 5.9-5.4z"/></g>
+</g>
+<path d="M32 13l13 4.5v11.5c0 8.8-5.6 15-13 18-7.4-3-13-9.2-13-18V17.5z" fill="#0a2470" stroke="url(#lg-ice)" stroke-width="2.4" stroke-linejoin="round"/>
+<g fill="url(#lg-ice)"><rect x="25" y="20" width="4.4" height="17" rx="1.2"/><rect x="34.6" y="20" width="4.4" height="17" rx="1.2"/><rect x="28" y="26.6" width="8" height="3.8" rx="1"/></g></g>
+<path d="M3 16C3 8 8 3 16 3H48C56 3 61 8 61 16V26C44 33 20 33 3 26Z" fill="url(#lg-sh)"/><rect x=".75" y=".75" width="62.5" height="62.5" rx="15.3" fill="none" stroke="#fff" stroke-opacity=".4" stroke-width="1.5"/></svg>
