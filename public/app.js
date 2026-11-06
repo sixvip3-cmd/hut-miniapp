@@ -1189,14 +1189,78 @@ async function init() {
 }
 
 // ---------- События ----------
-document.querySelector('.tabbar').addEventListener('click', e => {
-  const btn = e.target.closest('button[data-view]');
-  if (!btn) return;
-  document.querySelectorAll('.tabbar button').forEach(b => b.classList.toggle('active', b === btn));
+// ---------- Нижнее меню: стеклянная «линза», как в iOS ----------
+// Палец можно вести по меню не отрывая: линза едет за пальцем и тянется от скорости,
+// иконка под ней подсвечивается, на каждой новой вкладке — лёгкая вибрация.
+// Отпустил — линза пружинисто встаёт на вкладку и она открывается. Обычный тап работает как раньше.
+const tabbar = document.querySelector('.tabbar');
+const lens = tabbar.querySelector('.tab-lens');
+const tabButtons = [...tabbar.querySelectorAll('button[data-view]')];
+
+function showView(btn) {
+  if (btn.classList.contains('active')) return;
+  tabButtons.forEach(b => b.classList.toggle('active', b === btn));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${btn.dataset.view}`));
   window.scrollTo(0, 0);
-  haptic();
+}
+
+function placeLens(btn, x = null, stretch = 1) {
+  const w = btn.offsetWidth;
+  const left = x == null ? btn.offsetLeft : Math.max(tabButtons[0].offsetLeft, Math.min(x - w / 2, tabButtons.at(-1).offsetLeft));
+  lens.style.width = `${w}px`;
+  lens.style.transform = `translateX(${left}px) scale(${stretch}, ${2 - Math.min(stretch, 1.2)})`;
+}
+
+const tabAt = x => tabButtons.reduce((best, b) => (Math.abs(b.offsetLeft + b.offsetWidth / 2 - x) < Math.abs(best.offsetLeft + best.offsetWidth / 2 - x) ? b : best));
+const tabDrag = { id: null, startX: 0, moved: false, over: null, lastX: 0, lastT: 0 };
+const localX = e => e.clientX - tabbar.getBoundingClientRect().left;
+
+tabbar.addEventListener('pointerdown', e => {
+  if (!e.isPrimary) return;
+  tabDrag.id = e.pointerId; tabDrag.startX = localX(e); tabDrag.moved = false;
+  tabDrag.over = tabAt(tabDrag.startX); tabDrag.lastX = tabDrag.startX; tabDrag.lastT = e.timeStamp;
+  tabbar.setPointerCapture(e.pointerId);
+  tabbar.classList.add('pressing');
+  tabButtons.forEach(b => b.classList.toggle('lens-over', b === tabDrag.over));
+  placeLens(tabDrag.over, tabDrag.startX, 1.06);
 });
+
+tabbar.addEventListener('pointermove', e => {
+  if (e.pointerId !== tabDrag.id) return;
+  const x = localX(e);
+  if (!tabDrag.moved && Math.abs(x - tabDrag.startX) < 6) return;
+  if (!tabDrag.moved) { tabDrag.moved = true; tabbar.classList.add('dragging'); }
+  // растяжение от скорости пальца
+  const v = Math.abs(x - tabDrag.lastX) / Math.max(e.timeStamp - tabDrag.lastT, 1);
+  tabDrag.lastX = x; tabDrag.lastT = e.timeStamp;
+  const over = tabAt(x);
+  if (over !== tabDrag.over) {
+    tabDrag.over = over;
+    tabButtons.forEach(b => b.classList.toggle('lens-over', b === over));
+    try { tg?.HapticFeedback?.selectionChanged(); } catch {}
+  }
+  placeLens(over, x, 1.1 + Math.min(v * 0.12, 0.22));
+});
+
+function endTabDrag(e, cancel = false) {
+  if (e.pointerId !== tabDrag.id) return;
+  tabDrag.id = null;
+  tabbar.classList.remove('pressing', 'dragging');
+  tabButtons.forEach(b => b.classList.remove('lens-over'));
+  const target = cancel ? tabButtons.find(b => b.classList.contains('active')) : tabDrag.over;
+  if (!cancel && target && !target.classList.contains('active')) { showView(target); haptic(); }
+  placeLens(tabButtons.find(b => b.classList.contains('active')) || target);
+}
+tabbar.addEventListener('pointerup', e => endTabDrag(e));
+tabbar.addEventListener('pointercancel', e => endTabDrag(e, true));
+// клик с клавиатуры / доступность
+tabbar.addEventListener('click', e => {
+  const btn = e.target.closest('button[data-view]');
+  if (btn && e.detail === 0) { showView(btn); placeLens(btn); }
+});
+const placeActiveLens = () => placeLens(tabButtons.find(b => b.classList.contains('active')) || tabButtons[0]);
+window.addEventListener('resize', placeActiveLens);
+requestAnimationFrame(() => { lens.style.transition = 'none'; placeActiveLens(); requestAnimationFrame(() => { lens.style.transition = ''; }); });
 
 $('#team-mode').addEventListener('click', e => {
   const btn = e.target.closest('button[data-mode]');
