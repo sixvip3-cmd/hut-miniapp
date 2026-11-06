@@ -42,7 +42,7 @@ export function loaderPage(env) {
       linear-gradient(180deg,#051231 0%,#030a1c 60%,#020716 100%); background-attachment:fixed; min-height:100vh;
     display:flex; align-items:center; justify-content:center; padding:24px 18px calc(24px + env(safe-area-inset-bottom)); }
   .wrap { width:100%; max-width:420px; text-align:center; }
-  .mark { width:72px; height:72px; margin:0 auto 18px; border-radius:20px; display:grid; place-items:center; box-shadow:0 14px 40px -10px rgba(59,130,246,.9); }
+  .mark { width:72px; height:72px; margin:0 auto 18px; border-radius:18px; display:grid; place-items:center; box-shadow:0 14px 40px -10px rgba(59,130,246,.9); }
   .mark svg { display:block; }
   .pulse { animation:pulse 1.4s ease-in-out infinite; }
   @keyframes pulse { 50% { transform:scale(.94); } }
