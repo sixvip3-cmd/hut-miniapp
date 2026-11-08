@@ -76,3 +76,21 @@ CREATE TABLE IF NOT EXISTS blocked (
   user_id INTEGER PRIMARY KEY,
   at      INTEGER
 );
+
+-- Драфт: один ряд — одна попытка (worker/src/draft.js).
+CREATE TABLE IF NOT EXISTS drafts (
+  id          TEXT PRIMARY KEY,
+  user_id     INTEGER NOT NULL,
+  day         TEXT NOT NULL,          -- дата по Москве (YYYY-MM-DD): лимит в день и таблица дня
+  seed        INTEGER NOT NULL,
+  pool_v      TEXT,                   -- версия пула карточек на момент старта
+  status      TEXT NOT NULL,          -- active | done | abandoned
+  score       INTEGER,
+  breakdown   TEXT,                   -- JSON: из чего сложились очки
+  picks       TEXT,                   -- JSON: слот → id
+  verified    INTEGER DEFAULT 0,      -- 1 — выбор проверен по вариантам
+  created_at  INTEGER,
+  finished_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS drafts_user ON drafts (user_id, day);
+CREATE INDEX IF NOT EXISTS drafts_score ON drafts (status, day, score);

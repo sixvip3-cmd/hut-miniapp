@@ -118,6 +118,7 @@ function toast(text) {
 const hasCloud = () => !!(tg?.initData && tg.isVersionAtLeast?.('6.9') && tg.CloudStorage);
 
 function saveLineup() {
+  if (state.draft) return; // в драфте свой состав, сохранённый не трогаем (public/draft.js)
   const data = JSON.stringify({ slots: state.lineup, captain: state.captain, coach: state.coach });
   try { localStorage.setItem(STORAGE_KEY, data); } catch {}
   if (hasCloud()) {
@@ -408,6 +409,7 @@ function renderTeam() {
   renderStaff(cap, co);
   renderLineup(sum, cap);
   renderChem(sum);
+  if (state.draft) decorateDraftTeam();
 }
 
 // ---------- Поиск ----------
@@ -466,10 +468,11 @@ function openPicker(key) {
   $('#picker-allpos').checked = false;
   $('#picker').hidden = false;
   renderPickerList();
-  setTimeout(() => $('#picker-search').focus(), 50);
+  if (!state.draft) setTimeout(() => $('#picker-search').focus(), 50);
 }
 
 function renderCoachList() {
+  if (state.draft) return renderDraftOptions();
   const q = $('#picker-search').value.trim().toLowerCase();
   const list = state.coaches
     .filter(c => !q || `${c.name} ${c.team} ${c.nation} ${coachSummaryText(c)}`.toLowerCase().includes(q))
@@ -739,6 +742,7 @@ function bestLinesHtml(p, slotKey, metric) {
 }
 
 function renderPickerList() {
+  if (state.draft) return renderDraftOptions();
   if (state.pickerSlot === 'COACH') return renderCoachList();
   const isCaptain = state.pickerSlot === 'CAPTAIN';
   const q = $('#picker-search').value.trim();
@@ -1202,6 +1206,7 @@ function showView(btn) {
   tabButtons.forEach(b => b.classList.toggle('active', b === btn));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${btn.dataset.view}`));
   window.scrollTo(0, 0);
+  if (btn.dataset.view === 'draft') renderDraftHome();
 }
 
 function placeLens(btn) {
@@ -1310,6 +1315,7 @@ $('#lineup').addEventListener('click', e => {
   if (drag.suppressClick) return;
   const card = e.target.closest('[data-slot]');
   if (!card) return;
+  if (state.draft) return draftSlotTap(card.dataset.slot);
   const id = state.lineup[card.dataset.slot];
   if (id) openDetails(id, card.dataset.slot);
   else openPicker(card.dataset.slot);
@@ -1320,6 +1326,7 @@ $('#staff').addEventListener('click', e => {
   const tile = e.target.closest('[data-staff]');
   if (!tile) return;
   const kind = tile.dataset.staff;
+  if (state.draft) return draftSlotTap(kind === 'captain' ? 'CAPTAIN' : 'COACH');
   const isSet = kind === 'captain' ? state.captain : state.coach;
   if (!isSet) return openPicker(kind === 'captain' ? 'CAPTAIN' : 'COACH');
   state.staffOpen = state.staffOpen === kind ? null : kind;
@@ -1345,6 +1352,7 @@ $('#picker-accent').addEventListener('change', e => {
   renderPickerList();
 });
 $('#picker-list').addEventListener('click', e => {
+  if (state.draft) return draftChoose(e);
   const coachRow = e.target.closest('[data-coach]');
   if (coachRow) {
     setCoach(coachRow.dataset.coach);
@@ -1592,6 +1600,7 @@ function dropTarget(x, y) {
 }
 
 function startHold(e) {
+  if (state.draft) return;
   if (drag.active || $('#lineup').hidden) return;
   const src = dragSource(e.target);
   if (!src) return;

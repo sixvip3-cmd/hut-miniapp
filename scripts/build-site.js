@@ -15,8 +15,14 @@ fs.rmSync(OUT, { recursive: true, force: true });
 fs.cpSync(PUBLIC, OUT, { recursive: true });
 fs.cpSync(DATA, path.join(OUT, 'data'), { recursive: true });
 
+// Генератор вариантов драфта общий с сервером: в приложение — как обычный скрипт (без export).
+const DRAFT_CORE = path.join(ROOT, 'worker', 'src', 'draft-core.js');
+const draftCore = fs.readFileSync(DRAFT_CORE, 'utf8').replace(/^export /gm, '');
+fs.writeFileSync(path.join(OUT, 'draft-core.js'), draftCore);
+
 const hash = crypto.createHash('sha1');
 for (const f of fs.readdirSync(PUBLIC).sort()) hash.update(fs.readFileSync(path.join(PUBLIC, f)));
+hash.update(draftCore);
 const version = hash.digest('hex').slice(0, 10);
 
 const index = path.join(OUT, 'index.html');
@@ -24,6 +30,26 @@ fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replaceAll('__APP_VERSION
 fs.writeFileSync(path.join(OUT, 'version.json'), JSON.stringify({ v: version }));
 
 console.log(`_site собран, версия ${version}`);
+
+// ---------- Пул драфта: карточки 80+ с картинкой, капитаны и тренеры ----------
+// Один и тот же файл читают приложение и сервер — варианты пиков совпадают.
+{
+  const players = JSON.parse(fs.readFileSync(path.join(DATA, 'players.json'), 'utf8'));
+  const captains = JSON.parse(fs.readFileSync(path.join(DATA, 'captains.json'), 'utf8'));
+  const coaches = JSON.parse(fs.readFileSync(path.join(DATA, 'coaches.json'), 'utf8'));
+  const pool = players.filter(p => p.img && p.ovr >= 80).sort((a, b) => a.id - b.id);
+  const captainIds = players.filter(p => p.img && captains.some(r => (r.playerId != null ? Number(r.playerId) === p.id
+    : r.name === p.name.trim().replace(/\s+/g, ' ').toUpperCase() && (r.cardTypes || []).includes(p.card.trim().toUpperCase()))))
+    .map(p => p.id).sort((a, b) => a - b);
+  const draftPool = {
+    v: crypto.createHash('sha1').update(JSON.stringify([pool.map(p => [p.id, p.pos, p.salary, p.ovr]), captainIds, coaches.map(c => c.id)])).digest('hex').slice(0, 10),
+    players: pool.map(p => [p.id, p.pos, p.salary, p.ovr, p.name]),
+    captains: captainIds,
+    coaches: coaches.map(c => c.id).sort(),
+  };
+  fs.writeFileSync(path.join(OUT, 'data', 'draft-pool.json'), JSON.stringify(draftPool));
+  console.log(`драфт: ${draftPool.players.length} карточек, ${draftPool.captains.length} капитанов, ${draftPool.coaches.length} тренеров, версия ${draftPool.v}`);
+}
 
 // ---------- Индекс для инлайн-поиска бота ----------
 // data/search/<буква>.json — карточки, у которых какое-то слово имени начинается с этой буквы;
