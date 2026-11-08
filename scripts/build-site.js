@@ -33,13 +33,13 @@ fs.writeFileSync(path.join(OUT, 'version.json'), JSON.stringify({ v: version }))
 
 console.log(`_site собран, версия ${version}`);
 
-// ---------- Пул драфта: карточки 80+ с картинкой, капитаны и тренеры ----------
+// ---------- Пул драфта: все карточки с картинкой, капитаны и тренеры ----------
 // Один и тот же файл читают приложение и сервер — варианты пиков совпадают.
 {
   const players = JSON.parse(fs.readFileSync(path.join(DATA, 'players.json'), 'utf8'));
   const captains = JSON.parse(fs.readFileSync(path.join(DATA, 'captains.json'), 'utf8'));
   const coaches = JSON.parse(fs.readFileSync(path.join(DATA, 'coaches.json'), 'utf8'));
-  const pool = players.filter(p => p.img && p.ovr >= 80).sort((a, b) => a.id - b.id);
+  const pool = players.filter(p => p.img).sort((a, b) => a.id - b.id); // все карточки с картинкой
   const captainIds = players.filter(p => p.img && captains.some(r => (r.playerId != null ? Number(r.playerId) === p.id
     : r.name === p.name.trim().replace(/\s+/g, ' ').toUpperCase() && (r.cardTypes || []).includes(p.card.trim().toUpperCase()))))
     .map(p => p.id).sort((a, b) => a - b);

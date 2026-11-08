@@ -59,14 +59,27 @@ export function draftDeal(pool, seed, pickIndex, reroll, picks, salBonus = 0) {
     .reduce((t, k) => t + cheapest(slotPos(k)), 0);
   const sal = Math.max(0, Math.min(Number(salBonus) || 0, DRAFT_SAL_MAX));
   const budget = DRAFT_CAP + sal - salarySpent(pool, picks) - reserve + 1e-6;
-  const slot = slotPos(key);
   const cands = [];
-  for (const p of pool.players) {
-    if (!accepts(slot, p[1]) || taken.has(nameKey(p[4]))) continue;
-    if (p[2] > budget) continue;
-    cands.push({ id: p[0], w: weight(p[3]) });
+  for (const p of bySlot(pool, slotPos(key))) {
+    if (p.salary > budget || taken.has(p.name)) continue;
+    cands.push(p);
   }
   return deal(cands, rand, EXTRA_PLAYERS);
+}
+
+// Карточки по позициям, с готовыми весами — раскладываем один раз на пул.
+const slotCache = new WeakMap();
+function bySlot(pool, slot) {
+  let m = slotCache.get(pool);
+  if (!m) {
+    m = {};
+    for (const s of ['LW', 'C', 'RW', 'LD', 'RD', 'STARTER']) {
+      m[s] = pool.players.filter(p => accepts(s, p[1])).map(p => ({ id: p[0], salary: p[2], w: weight(p[3]), name: nameKey(p[4]) }));
+    }
+    m.BACKUP = m.STARTER;
+    slotCache.set(pool, m);
+  }
+  return m[slot];
 }
 
 // Для совместимости: только 5 случайных вариантов.
@@ -85,18 +98,36 @@ export function salarySpent(pool, picks) {
 }
 
 // Чем выше рейтинг, тем чаще выпадает карточка, но сильные — редкость.
-const weight = ovr => Math.pow(Math.max(1, ovr - 79), 1.25);
+// Веса — целые числа: приложение (на iPhone другой движок JavaScript) и сервер считают одинаково.
+// Базовые карточки ниже 80 есть в драфте, но выпадают редко (~1 вариант из 7).
+const weight = ovr => {
+  const d = ovr - 79;
+  return d <= 0 ? 3 : 60 * d + 8 * d * d;
+};
 
+// Взвешенная выборка без повторов: дерево Фенвика по целым весам — быстро даже на 8000 карточек.
 function sample(cands, rand, n = DRAFT_OPTIONS) {
+  const N = cands.length;
+  const w = cands.map(c => c.w);
+  const tree = new Array(N + 1).fill(0);
+  let total = 0;
+  for (let i = 0; i < N; i++) {
+    total += w[i];
+    for (let j = i + 1; j <= N; j += j & -j) tree[j] += w[i];
+  }
+  let top = 1;
+  while (top * 2 <= N) top *= 2;
   const out = [];
-  const list = cands.slice();
-  while (out.length < n && list.length) {
-    const total = list.reduce((t, c) => t + c.w, 0);
-    let r = rand() * total;
-    let i = 0;
-    while (i < list.length - 1 && (r -= list[i].w) > 0) i++;
-    out.push(list[i].id);
-    list.splice(i, 1);
+  while (out.length < n && total > 0) {
+    let rem = Math.floor(rand() * total);
+    let pos = 0;
+    for (let step = top; step; step >>= 1) {
+      if (pos + step <= N && tree[pos + step] <= rem) { pos += step; rem -= tree[pos]; }
+    }
+    out.push(cands[pos].id);
+    for (let j = pos + 1; j <= N; j += j & -j) tree[j] -= w[pos];
+    total -= w[pos];
+    w[pos] = 0;
   }
   return out;
 }
