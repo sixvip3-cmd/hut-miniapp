@@ -4,6 +4,7 @@
 
 import { bot } from './telegram.js';
 import { adminIds, DAY, isAdmin, markNotice, now, price } from './db.js';
+import { runRewards } from './rewards.js';
 
 const MAX_SENDS = 35;
 const DIGEST_HOUR_UTC = 7; // 10:00 по Москве
@@ -138,6 +139,7 @@ export async function runScheduled(env) {
   const origin = await getOrigin(env);
   const sentReminders = await reminders(env, origin, MAX_SENDS);
   const sentDigest = await digest(env, origin, MAX_SENDS - sentReminders);
-  console.log(`[cron] напоминаний: ${sentReminders}, дайджестов: ${sentDigest}`);
-  return { reminders: sentReminders, digest: sentDigest };
+  const rewards = await runRewards(env).catch(err => { console.error('rewards', err.message); return []; });
+  console.log(`[cron] напоминаний: ${sentReminders}, дайджестов: ${sentDigest}, наград: ${rewards.length}`);
+  return { reminders: sentReminders, digest: sentDigest, rewards };
 }

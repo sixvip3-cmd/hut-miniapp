@@ -1,15 +1,19 @@
-// Вкладка «Драфт»: собираешь команду из случайных карточек на том же экране, что и обычный состав.
-// Порядок пиков: капитан → 20 игроков → тренер; на каждый пик 5 вариантов (draft-core.js, общий с сервером).
-// Пока идёт драфт, сохранённый состав пользователя отложен (state.savedLineup) и вернётся при выходе.
+// Вкладка «Драфт»: драфт (команда из случайных карточек) и челлендж недели (лучший состав по условию).
+// Оба режима идут на обычном экране сборки состава. Сохранённый состав пользователя на это время
+// откладывается (state.savedLineup) и возвращается при выходе.
+//   Драфт: капитан → 20 игроков → тренер; на пик 5 вариантов (draft-core.js, общий с сервером),
+//          среди них всегда есть хотя бы один «с бонусом». Лимит $80M + бонусы Salary, 3 перевыброса.
+//   Челлендж: свободная сборка из карточек, подходящих под условие недели (challenge-core.js).
 
 const DRAFT_KEY = 'hut-draft-v1';
+const CHAL_KEY = 'hut-challenge-v1';
 const POS_RU = { LW: 'левый нападающий', C: 'центральный', RW: 'правый нападающий', LD: 'левый защитник', RD: 'правый защитник', STARTER: 'основной вратарь', BACKUP: 'запасной вратарь' };
 const DRAFT_LABEL = key => (key === 'CAPTAIN' ? 'Капитан' : key === 'COACH' ? 'Тренер' : `${LINE_LABELS[key.split('-')[0]]} · ${POS_RU[slotOf(key)]}`);
 const DRAFT_SHORT = key => (key === 'CAPTAIN' ? 'Капитан' : key === 'COACH' ? 'Тренер' : `${LINE_LABELS[key.split('-')[0]]} · ${slotOf(key) === 'STARTER' ? 'G1' : slotOf(key) === 'BACKUP' ? 'G2' : slotOf(key)}`);
 state.draftPeriod = 'day';
 
 async function draftApi(path, body) {
-  const res = await fetch(`api/draft/${path}`, body
+  const res = await fetch(`api/${path}`, body
     ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
     : { cache: 'no-store' });
   const data = await res.json().catch(() => ({}));
@@ -22,11 +26,20 @@ async function draftPool() {
   return state.draftPool;
 }
 
-const saveDraftLocal = () => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(state.draft)); } catch {} };
-const loadDraftLocal = () => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY)); } catch { return null; } };
-const clearDraftLocal = () => { try { localStorage.removeItem(DRAFT_KEY); } catch {} };
+const store = {
+  get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del: k => { try { localStorage.removeItem(k); } catch {} },
+};
+const saveDraftLocal = () => store.set(DRAFT_KEY, state.draft);
+const loadDraftLocal = () => store.get(DRAFT_KEY);
+const clearDraftLocal = () => store.del(DRAFT_KEY);
+function saveChallengeLocal() {
+  const c = state.challenge;
+  if (c) store.set(CHAL_KEY, { week: c.week, lineup: state.lineup, captain: state.captain, coach: state.coach });
+}
 
-// ---------- Очки ----------
+// ---------- Очки (драфт и челлендж) ----------
 // 4 × средний рейтинг 20 карточек + бонусы: сыгранность звеньев, капитан, тренер (OVR считаем ×3).
 function draftScore() {
   const ids = DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH').map(k => state.lineup[k]).filter(Boolean);
@@ -51,72 +64,83 @@ function draftScore() {
   return part;
 }
 
-const draftSalary = () => Math.round(DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH')
+const lineupSalary = () => Math.round(DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH')
   .reduce((t, k) => t + (state.byId[state.lineup[k]]?.salary || 0), 0) * 10) / 10;
+// Бонус Salary состава сейчас (звенья + капитан + тренер) — в драфте расширяет лимит, как в игре.
+const draftSalBonus = () => Math.max(0, state.lastSum?.boost?.SAL || 0);
+const draftCap = () => DRAFT_CAP + (state.draft?.salAt?.[state.draft.pick] ?? draftSalBonus());
 
-// ---------- Вход и выход из режима драфта ----------
-function enterDraftMode() {
-  const d = state.draft;
+// ---------- Вход и выход: драфт и челлендж идут на экране состава ----------
+function enterBuildMode(lineup, captain, coach, mode) {
   state.savedLineup = { lineup: state.lineup, captain: state.captain, coach: state.coach };
-  state.lineup = Object.fromEntries(Object.entries(d.picks).filter(([k]) => k !== 'CAPTAIN' && k !== 'COACH'));
-  state.captain = d.picks.CAPTAIN ?? null;
-  state.coach = d.picks.COACH ?? null;
+  state.lineup = { ...lineup };
+  state.captain = captain ?? null;
+  state.coach = coach ?? null;
   state.staffOpen = null;
   document.body.classList.add('draft-mode');
+  document.body.classList.toggle('challenge-mode', mode === 'challenge');
+  $('#picker-search').hidden = false;
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-team'));
   $('#team-mode [data-mode="lineup"]').click();
   window.scrollTo(0, 0);
   renderTeam();
 }
 
-function exitDraftMode() {
+function exitBuildMode() {
   const saved = state.savedLineup || { lineup: {}, captain: null, coach: null };
   state.draft = null;
+  state.challenge = null;
   state.lineup = saved.lineup; state.captain = saved.captain; state.coach = saved.coach;
   state.savedLineup = null;
-  document.body.classList.remove('draft-mode');
+  document.body.classList.remove('draft-mode', 'challenge-mode');
+  $('#draft-bar').hidden = true;
+  $('#picker-search').hidden = false; // в драфте поиск прятали
   closeSheets();
   renderTeam();
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-draft'));
   window.scrollTo(0, 0);
 }
 
+function confirmThen(text, fn) {
+  const go = ok => ok && fn();
+  if (tg?.showConfirm) tg.showConfirm(text, go); else go(window.confirm(text));
+}
+
+// ---------- Драфт ----------
 async function startDraft(fresh = false) {
   try {
-    const [res, pool] = await Promise.all([draftApi('start', { fresh }), draftPool()]);
+    const [res, pool] = await Promise.all([draftApi('draft/start', { fresh }), draftPool()]);
     const local = loadDraftLocal();
-    state.draft = local?.id === res.id ? local : { id: res.id, seed: res.seed, poolV: res.poolV, pick: 0, picks: {}, rerolls: {}, rerollsLeft: DRAFT_REROLLS };
+    state.draft = local?.id === res.id ? local : { id: res.id, seed: res.seed, poolV: res.poolV, pick: 0, picks: {}, rerolls: {}, salAt: {}, rerollsLeft: DRAFT_REROLLS };
+    state.draft.salAt ||= {};
     if (pool.v !== res.poolV) state.draft.stalePool = true;
     saveDraftLocal();
-    enterDraftMode();
+    const p = state.draft.picks;
+    enterBuildMode(Object.fromEntries(Object.entries(p).filter(([k]) => k !== 'CAPTAIN' && k !== 'COACH')), p.CAPTAIN, p.COACH, 'draft');
     haptic('medium');
+    if (state.draft.pick >= DRAFT_ORDER.length) return finishDraft();
     setTimeout(openDraftPicker, 300);
   } catch (err) {
     toast(err.message === 'limit' ? 'На сегодня драфты закончились — приходи завтра' : 'Не удалось начать драфт, попробуй ещё раз');
   }
 }
 
-function leaveDraft() {
-  const go = ok => { if (ok) { exitDraftMode(); renderDraftHome(); } };
-  const text = 'Выйти из драфта? Он сохранится — продолжишь с того же пика.';
-  if (tg?.showConfirm) tg.showConfirm(text, go); else go(window.confirm(text));
-}
-
-// ---------- Экран состава в драфте ----------
 function decorateDraftTeam() {
+  document.querySelectorAll('#lineup .card.now, #staff .staff-tile.now').forEach(e => e.classList.remove('now'));
+  if (state.challenge) return decorateChallengeTeam();
   const d = state.draft;
   const key = DRAFT_ORDER[d.pick];
   const sc = draftScore();
-  const spent = draftSalary();
+  const bonus = draftSalBonus();
   $('#draft-bar').hidden = false;
   $('#draft-bar').innerHTML = `
     <div class="dbar"><button class="dx" data-draft="leave" aria-label="Выйти">✕</button>
       <div class="dt"><b>Пик ${Math.min(d.pick + 1, DRAFT_ORDER.length)} / ${DRAFT_ORDER.length}</b><small>${key ? esc(DRAFT_LABEL(key)) : 'Готово'}</small></div>
       <div class="dsc"><b>${sc.total}</b><small>очков</small></div></div>
     <div class="dprog"><i style="width:${(d.pick / DRAFT_ORDER.length) * 100}%"></i></div>
-    <div class="dmeta"><span>💰 <b>$${spent.toFixed(1)}M</b> / $${DRAFT_CAP}M</span><span>🔄 перевыбросов: <b>${d.rerollsLeft}</b></span>
+    <div class="dmeta"><span>💰 <b>$${lineupSalary().toFixed(1)}M</b> / $${DRAFT_CAP + bonus}M${bonus ? ` <em class="up">(+${bonus})</em>` : ''}</span>
+      <span>🔄 <b>${d.rerollsLeft}</b></span>
       ${key ? '<button class="dnext" data-draft="open">Выбрать ›</button>' : ''}</div>`;
-  document.querySelectorAll('#lineup .card.now, #staff .staff-tile.now').forEach(e => e.classList.remove('now'));
   if (key === 'CAPTAIN' || key === 'COACH') document.querySelector(`#staff [data-staff="${key === 'CAPTAIN' ? 'captain' : 'coach'}"]`)?.classList.add('now');
   else if (key) document.querySelector(`#lineup [data-slot="${key}"]`)?.classList.add('now');
   document.querySelectorAll('#staff .staff-tile').forEach(t => {
@@ -127,8 +151,10 @@ function decorateDraftTeam() {
 
 $('#draft-bar').addEventListener('click', e => {
   const act = e.target.closest('[data-draft]')?.dataset.draft;
-  if (act === 'leave') leaveDraft();
+  if (act === 'leave') confirmThen('Выйти из драфта? Он сохранится — продолжишь с того же пика.', () => { exitBuildMode(); renderDraftHome(); });
   if (act === 'open') openDraftPicker();
+  if (act === 'chal-leave') { saveChallengeLocal(); exitBuildMode(); renderDraftHome(); }
+  if (act === 'chal-submit') submitChallenge();
 });
 
 function draftSlotTap(key) {
@@ -137,23 +163,59 @@ function draftSlotTap(key) {
   toast(now ? `Сейчас пик: ${DRAFT_SHORT(now)}` : 'Драфт завершён');
 }
 
+// Даёт ли вариант бонус: игрок — сыгранность в звене или клуб капитана; тренер — хоть одна комбинация.
+function draftHasBonus(key, id) {
+  if (key === 'CAPTAIN') return true;
+  if (key === 'COACH') { const c = coachById(id); return !!c && coachStatus(c, state.lineup, state.byId).activeCount > 0; }
+  const p = state.byId[id];
+  if (!p) return false;
+  const cap = state.byId[state.captain];
+  const rule = cap && captainRuleFor(cap, state.captains);
+  if (rule && captainMatch(p, rule) && !captainStatus(cap, lineupPlayers(), state.captains).met) return true;
+  const best = bestForSlot(key, () => true);
+  if (!best.others.length) return false;
+  return weightOf(synergyFor(p, best.line, best.others, best.base, best.combos).delta) > 0 || comboStart(best, p);
+}
+
+// «Начало комбо»: в тройке нападающих комбинации требуют трёх игроков, поэтому вторым пиком закрыть их
+// нельзя — но можно начать: кандидат и уже выбранный партнёр закрывают 2 из 3 условий какой-то комбинации.
+function comboStart(best, p) {
+  if (best.others.length !== 1 || best.line.slots.length < 3) return false;
+  const mate = best.others[0];
+  return best.combos.some(c => c.reqs.length >= 3 && c.reqs.some((r, i) => reqMatches(r, p) && c.reqs.some((r2, j) => j !== i && reqMatches(r2, mate))));
+}
+
+function dealDraft() {
+  const d = state.draft;
+  const key = DRAFT_ORDER[d.pick];
+  if (d.salAt[d.pick] == null) { d.salAt[d.pick] = draftSalBonus(); saveDraftLocal(); }
+  const { opts, extra } = draftDeal(state.draftPool, d.seed, d.pick, d.rerolls[d.pick] || 0, d.picks, d.salAt[d.pick]);
+  const options = opts.slice();
+  // В каждой пятёрке хотя бы один вариант с бонусом — берём первый подходящий из запасного списка.
+  if (key !== 'CAPTAIN' && options.length && !options.some(id => draftHasBonus(key, id))) {
+    const bonus = extra.find(id => draftHasBonus(key, id));
+    if (bonus != null) options[(d.seed + d.pick) % options.length] = bonus;
+  }
+  d.options = options;
+}
+
 function openDraftPicker() {
   const d = state.draft;
   const key = DRAFT_ORDER[d.pick];
   if (!key || !state.draftPool) return;
-  d.options = draftOptions(state.draftPool, d.seed, d.pick, d.rerolls[d.pick] || 0, d.picks);
+  dealDraft();
   openPicker(key);
 }
 
-// ---------- Меню выбора: 5 вариантов ----------
+// Меню выбора в драфте: 5 вариантов, у каждого что даст в звене и подходит ли капитану.
 function renderDraftOptions() {
   const d = state.draft;
   const key = DRAFT_ORDER[d.pick];
   $('#picker-title').textContent = `Пик ${d.pick + 1} · ${DRAFT_SHORT(key)}`;
-  ['#picker-remove', '#picker-accent'].forEach(s => { $(s).hidden = true; });
-  $('#picker-search').hidden = true;
+  ['#picker-remove', '#picker-accent', '#picker-search'].forEach(s => { $(s).hidden = true; });
   $('#picker-allpos').parentElement.hidden = true;
   const chip = (cls, t, v) => `<i class="${cls}${v ? '' : ' z'}">${t}</i>`;
+  const addInfo = (html, extra) => html.replace('</span>\n    <span class="price">', `${extra}</span>\n    <span class="price">`);
   let rows = '';
   let head = '';
   if (key === 'COACH') {
@@ -169,11 +231,10 @@ function renderDraftOptions() {
     head = 'Выбери <b>1 из 5</b> · дальше подбирай игроков под его бонус';
     rows = d.options.map(id => state.byId[id]).filter(Boolean).map(p => {
       const r = captainRuleFor(p, state.captains);
-      return playerRow(p, '').replace('</span>\n    <span class="price">', `${r ? `<span class="capbig">👑 ${esc(captainBonusText(r).replace(/<[^>]+>/g, ''))} · нужно ${r.needed} игроков</span>` : ''}</span>\n    <span class="price">`);
+      return addInfo(playerRow(p, ''), r ? `<span class="capbig">👑 ${esc(captainBonusText(r).replace(/<[^>]+>/g, ''))} · нужно ${r.needed} игроков</span>` : '');
     }).join('');
   } else {
-    const budget = DRAFT_CAP - draftSalary();
-    head = `<span>Выбери <b>1 из 5</b> · осталось <b>$${budget.toFixed(1)}M</b></span>`;
+    head = `<span>Выбери <b>1 из 5</b> · осталось <b>$${(draftCap() - lineupSalary()).toFixed(1)}M</b></span>`;
     const best = bestForSlot(key, () => true);
     const cap = state.byId[state.captain];
     const rule = cap && captainRuleFor(cap, state.captains);
@@ -182,7 +243,8 @@ function renderDraftOptions() {
       const delta = best.others.length ? synergyFor(p, best.line, best.others, best.base, best.combos).delta : { OVR: 0, SAL: 0, AP: 0 };
       const capHit = rule && captainMatch(p, rule);
       const capTxt = capHit ? (have >= rule.needed ? '<span class="cap">👑 клуб капитана</span>' : `<span class="cap">👑 +1 к капитану · станет ${have + 1}/${rule.needed}</span>`) : '';
-      return playerRow(p, '').replace('</span>\n    <span class="price">', `<span class="dsyn"><span class="lbl">в звене:</span>${chip('o', `+${delta.OVR} OVR`, delta.OVR)}${chip('s', `+$${delta.SAL}M`, delta.SAL)}${chip('a', `+${delta.AP} AP`, delta.AP)}${capTxt}</span></span>\n    <span class="price">`);
+      const startTxt = !weightOf(delta) && comboStart(best, p) ? '<span class="cap part">🧩 начало комбо</span>' : '';
+      return addInfo(playerRow(p, ''), `<span class="dsyn"><span class="lbl">в звене:</span>${chip('o', `+${delta.OVR} OVR`, delta.OVR)}${chip('s', `+$${delta.SAL}M`, delta.SAL)}${chip('a', `+${delta.AP} AP`, delta.AP)}${startTxt}${capTxt}</span>`);
     }).join('');
   }
   $('#picker-list').innerHTML = `<div class="dpick-head">${head}</div>${rows || '<p class="hint">Нет подходящих карточек</p>'}
@@ -197,7 +259,7 @@ function draftChoose(e) {
     d.rerollsLeft--;
     saveDraftLocal();
     haptic();
-    d.options = draftOptions(state.draftPool, d.seed, d.pick, d.rerolls[d.pick], d.picks);
+    dealDraft();
     renderDraftOptions();
     renderTeam();
     return;
@@ -220,21 +282,18 @@ function draftChoose(e) {
   setTimeout(openDraftPicker, 380);
 }
 
-// ---------- Результат ----------
 async function finishDraft() {
   const d = state.draft;
   const sc = draftScore();
   try {
-    const res = await draftApi('finish', { id: d.id, picks: d.picks, rerolls: d.rerolls, breakdown: sc });
+    const res = await draftApi('draft/finish', { id: d.id, picks: d.picks, rerolls: d.rerolls, salAt: d.salAt, breakdown: sc });
     state.draftResult = { ...sc, total: res.score, base: res.breakdown?.base ?? sc.base, place: res.place, left: res.left, picks: { ...d.picks } };
     clearDraftLocal();
-    exitDraftMode();
-    state.draftResultShown = true;
+    exitBuildMode();
     renderDraftResult();
     haptic('heavy');
   } catch (err) {
-    toast('Не удалось сохранить результат — проверь связь и нажми «Выбрать ›» ещё раз');
-    d.pick = DRAFT_ORDER.length;
+    toast('Не удалось сохранить результат — проверь связь и попробуй ещё раз');
   }
 }
 
@@ -254,7 +313,7 @@ function renderDraftResult() {
   $('#draft-home').innerHTML = `
     <section class="glass dres"><div class="ring"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="tr"/>
       <circle cx="60" cy="60" r="52" class="vl" stroke-dasharray="327" stroke-dashoffset="${(327 * (1 - pct)).toFixed(0)}"/></svg><b>${r.total}</b><small>ОЧКОВ</small></div>
-      <div class="place"><b>#${r.place}</b> за сегодня<br><span class="muted">драфтов осталось: ${r.left}</span></div></section>
+      <div class="place"><b>#${r.place}</b> за сегодня<br><span class="muted">драфтов осталось: ${r.left > 50 ? '∞' : r.left}</span></div></section>
     <section class="glass staffres">
       <div class="sr"><span class="badge" style="${cap ? cardStyle(cap) : ''}">${cap ? cardImg(cap, true) : ''}</span><div><small>КАПИТАН</small><b>${esc(cap?.name || '—')}</b>
         <span class="${r.capInfo?.met ? 'ok' : 'muted'}">${r.capInfo ? `${Math.min(r.capInfo.count, r.capInfo.needed)}/${r.capInfo.needed} игроков` : ''}${r.captain ? ` · +${r.captain}` : ''}</span></div></div>
@@ -268,22 +327,81 @@ function renderDraftResult() {
       <div class="br tot"><span>Итого</span><em></em><b>${r.total}</b></div></section>
     ${draftCardsGrid(r.picks)}
     <div class="two"><button class="btn-primary" data-draft-act="share">📤 Поделиться</button><button class="ghostbtn" data-draft-act="home">К таблице</button></div>
-    ${r.left > 0 ? `<button class="ghostbtn wide" data-draft-act="new">Ещё драфт · осталось ${r.left} сегодня</button>` : ''}`;
+    ${r.left > 0 ? `<button class="ghostbtn wide" data-draft-act="new">Ещё драфт · осталось ${r.left > 50 ? '∞' : r.left} сегодня</button>` : ''}`;
   window.scrollTo(0, 0);
 }
 
+// ---------- Челлендж недели ----------
+function challengeLineupObjects() {
+  return Object.fromEntries(CHALLENGE_SLOTS.filter(k => state.lineup[k]).map(k => [k, state.byId[state.lineup[k]]]));
+}
+
+function enterChallenge() {
+  const b = state.challengeBoard;
+  if (!b) return;
+  const saved = store.get(CHAL_KEY);
+  const same = saved?.week === b.week;
+  state.challenge = { ch: b.ch, week: b.week, endsAt: b.endsAt, best: b.me?.score || 0 };
+  enterBuildMode(same ? saved.lineup : {}, same ? saved.captain : null, same ? saved.coach : null, 'challenge');
+  haptic('medium');
+}
+
+function decorateChallengeTeam() {
+  const c = state.challenge;
+  const sc = draftScore();
+  const spent = lineupSalary();
+  const filled = CHALLENGE_SLOTS.filter(k => state.lineup[k]).length;
+  const err = challengeCheck(c.ch, challengeLineupObjects());
+  $('#draft-bar').hidden = false;
+  $('#draft-bar').innerHTML = `
+    <div class="dbar"><button class="dx" data-draft="chal-leave" aria-label="Выйти">✕</button>
+      <div class="dt"><b>${esc(c.ch.title)}</b><small>Челлендж недели${c.best ? ` · лучший: ${c.best}` : ''}</small></div>
+      <div class="dsc"><b>${sc.total}</b><small>очков</small></div></div>
+    <div class="rules">${c.ch.rules.map(r => `<span>${esc(r)}</span>`).join('')}</div>
+    <div class="dprog"><i style="width:${(filled / CHALLENGE_SLOTS.length) * 100}%"></i></div>
+    <div class="dmeta"><span class="${spent > c.ch.cap ? 'over' : ''}">💰 <b>$${spent.toFixed(1)}M</b> / $${c.ch.cap}M</span><span>🏒 <b>${filled}</b>/20</span>
+      <button class="dnext" data-draft="chal-submit" ${err ? 'disabled' : ''}>Отправить ›</button></div>
+    ${err && filled === 20 ? `<p class="hint over" style="margin:8px 2px 0">${esc(err)}</p>` : ''}`;
+}
+
+async function submitChallenge() {
+  const c = state.challenge;
+  const err = challengeCheck(c.ch, challengeLineupObjects());
+  if (err) return toast(err);
+  const sc = draftScore();
+  try {
+    const res = await draftApi('challenge/submit', { week: c.week, picks: { ...state.lineup, CAPTAIN: state.captain, COACH: state.coach }, breakdown: sc });
+    c.best = res.best;
+    saveChallengeLocal();
+    renderTeam();
+    haptic('heavy');
+    toast(res.improved ? `✅ ${res.score} очков — #${res.place} в челлендже` : `${res.score} очков — твой лучший ${res.best} (#${res.place})`);
+  } catch (e) {
+    toast(e.data?.message || 'Не удалось отправить состав');
+  }
+}
+
+const untilText = t => {
+  const s = Math.max(0, t - Math.floor(Date.now() / 1000));
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
+  return d ? `${d}д ${h}ч` : `${h}ч ${Math.floor((s % 3600) / 60)}м`;
+};
+
 // ---------- Главная вкладки ----------
 async function renderDraftHome() {
-  if (state.draft) return;
+  if (state.draft || state.challenge) return;
   if (state.draftResult && !state.draftResultShown) { state.draftResultShown = true; return renderDraftResult(); }
   const el = $('#draft-home');
-  let b;
-  try { b = await draftApi(`board?period=${state.draftPeriod}`); } catch { el.innerHTML = '<p class="hint">Нет связи с сервером. Попробуй позже.</p>'; return; }
+  let b, c;
+  try { [b, c] = await Promise.all([draftApi(`draft/board?period=${state.draftPeriod}`), draftApi('challenge/board')]); }
+  catch { el.innerHTML = '<p class="hint">Нет связи с сервером. Попробуй позже.</p>'; return; }
+  state.challengeBoard = c;
   draftPool().catch(() => {});
   const local = loadDraftLocal();
   const resumePick = b.active && local ? local.pick : 0;
   const medal = i => ['🥇', '🥈', '🥉'][i] || String(i + 1);
-  const rows = b.top.map((r, i) => `<div class="lrow${r.me ? ' me' : ''}"><span class="pl">${medal(i)}</span><span class="nm">${esc(r.name)}${r.me ? ' <i>вы</i>' : ''}</span><b>${r.score}</b></div>`).join('');
+  const row = (r, i) => `<div class="lrow${r.me ? ' me' : ''}"><span class="pl">${medal(i)}</span><span class="nm">${esc(r.name)}${r.me ? ' <i>вы</i>' : ''}</span><b>${r.score}</b></div>`;
+  const left = b.left > 50 ? '∞' : b.left;
   el.innerHTML = `
     <section class="ddraft glass"><div class="dk">ДРАФТ</div>
       <h2>Собери команду из случайных карточек</h2>
@@ -291,16 +409,24 @@ async function renderDraftHome() {
       <div class="steps"><div class="st"><span class="ic">👑</span><b>Капитан</b><small>пик 1</small></div><i class="ar">→</i>
         <div class="st"><span class="ic">🏒</span><b>20 игроков</b><small>пики 2–21</small></div><i class="ar">→</i>
         <div class="st"><span class="ic">📋</span><b>Тренер</b><small>пик 22</small></div></div>
-      <div class="rules"><span>🎴 1 из 5 на пик</span><span>🔄 ${DRAFT_REROLLS} перевыброса</span><span>💰 лимит $${DRAFT_CAP}M</span><span>📊 видно OVR · Salary · AP</span></div>
+      <div class="rules"><span>🎴 1 из 5 на пик</span><span>✨ всегда есть вариант с бонусом</span><span>🔄 ${DRAFT_REROLLS} перевыброса</span><span>💰 $${DRAFT_CAP}M + бонусы Salary</span></div>
       ${b.active ? `<div class="resume"><div><b>Незаконченный драфт</b><small>${resumePick ? `пик ${resumePick + 1} из ${DRAFT_ORDER.length}` : 'можно продолжить'}</small></div>
         <button class="ghostbtn sm" data-draft-act="resume">Продолжить</button></div>` : ''}
       <div class="meta3"><div><b>${b.today.best || '—'}</b><small>лучший сегодня</small></div><div><b>${b.me && state.draftPeriod === 'day' ? `#${b.me.place}` : '—'}</b><small>место за день</small></div>
-        <div><b>${b.left > 50 ? '∞' : b.left}</b><small>драфтов осталось</small></div></div>
-      <button class="btn-primary" data-draft-act="new" ${b.left <= 0 && !b.active ? 'disabled' : ''}>${b.left <= 0 && !b.active ? 'Драфты на сегодня закончились' : b.active ? 'Начать новый драфт' : 'Начать драфт'}</button>
-      <p class="hint dscore-hint">Очки: 4 × средний OVR карточек + бонусы сыгранности, капитана и тренера.</p></section>
-    <section class="glass dlead"><div class="dk">ЛИДЕРЫ</div>
+        <div><b>${left}</b><small>драфтов осталось</small></div></div>
+      <button class="btn-primary" data-draft-act="new" ${b.left <= 0 ? 'disabled' : ''}>${b.left <= 0 ? 'Драфты на сегодня закончились' : b.active ? 'Начать новый драфт' : 'Начать драфт'}</button>
+      <p class="hint dscore-hint">Очки: 4 × средний OVR карточек + бонусы сыгранности, капитана и тренера.<br>🏆 №1 недели — месяц доступа, №1 месяца — год.</p></section>
+
+    <section class="dchal glass"><div class="dk">ЧЕЛЛЕНДЖ НЕДЕЛИ <span class="dk-r">${untilText(c.endsAt)}</span></div>
+      <h2>${esc(c.ch.title)}</h2>
+      <div class="rules">${c.ch.rules.map(r => `<span>${esc(r)}</span>`).join('')}</div>
+      <div class="chalfoot"><span>${c.me ? `Ваш лучший: <b>${c.me.score}</b> · <b>#${c.me.place}</b> из ${c.players}` : `Участников: ${c.players}`}</span><span class="prize">🎁 месяц доступа</span></div>
+      ${c.top.length ? `<div class="chaltop">${c.top.slice(0, 3).map(row).join('')}</div>` : ''}
+      <button class="ghostbtn wide" data-draft-act="challenge">${c.me ? 'Улучшить состав' : 'Собрать состав на челлендж'}</button></section>
+
+    <section class="glass dlead"><div class="dk">ЛИДЕРЫ ДРАФТА</div>
       <div class="segmented small" id="draft-period">${[['day', 'День'], ['week', 'Неделя'], ['all', 'Всё время']].map(([k, t]) => `<button data-period="${k}" class="${k === state.draftPeriod ? 'active' : ''}">${t}</button>`).join('')}</div>
-      ${rows || '<p class="hint">Пока никто не сыграл — будь первым!</p>'}
+      ${b.top.map(row).join('') || '<p class="hint">Пока никто не сыграл — будь первым!</p>'}
       ${b.me && !b.top.some(r => r.me) ? `<div class="sep">…</div><div class="lrow me"><span class="pl">${b.me.place}</span><span class="nm">Вы</span><b>${b.me.score}</b></div>` : ''}
       <p class="hint" style="margin:8px 0 0">Игроков в таблице: ${b.players}</p></section>`;
 }
@@ -311,19 +437,17 @@ $('#draft-home').addEventListener('click', e => {
   const act = e.target.closest('[data-draft-act]')?.dataset.draftAct;
   if (!act) return;
   if (act === 'resume') return startDraft(false);
+  if (act === 'challenge') return enterChallenge();
   if (act === 'new') {
-    const go = ok => ok && startDraft(true);
-    if (loadDraftLocal() || e.target.closest('.ddraft')?.querySelector('.resume')) {
-      const text = 'Начать новый драфт? Незаконченный будет засчитан как сыгранный.';
-      return tg?.showConfirm ? tg.showConfirm(text, go) : go(window.confirm(text));
+    if (e.target.closest('.ddraft')?.querySelector('.resume')) {
+      return confirmThen('Начать новый драфт? Незаконченный будет засчитан как сыгранный.', () => startDraft(true));
     }
     return startDraft(true);
   }
   if (act === 'home') { state.draftResult = null; return renderDraftHome(); }
   if (act === 'share') {
     const r = state.draftResult;
-    const username = state.me?.refLink?.match(/t\.me\/([^?]+)/)?.[1];
-    const link = state.me?.refLink || (username ? `https://t.me/${username}` : '');
+    const link = state.me?.refLink || '';
     const text = `🏒 Набрал ${r.total} очков в драфте HUT Builder (#${r.place} за сегодня). Побьёшь?`;
     tg?.openTelegramLink?.(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`);
   }

@@ -94,3 +94,16 @@ CREATE TABLE IF NOT EXISTS drafts (
 );
 CREATE INDEX IF NOT EXISTS drafts_user ON drafts (user_id, day);
 CREATE INDEX IF NOT EXISTS drafts_score ON drafts (status, day, score);
+
+-- Челлендж недели: лучший результат пользователя за неделю (worker/src/challenge.js).
+CREATE TABLE IF NOT EXISTS challenge_entries (
+  user_id    INTEGER NOT NULL,
+  week       TEXT NOT NULL,            -- понедельник недели по Москве (YYYY-MM-DD)
+  ch_id      TEXT NOT NULL,
+  score      INTEGER NOT NULL,
+  breakdown  TEXT,
+  picks      TEXT,
+  updated_at INTEGER,
+  PRIMARY KEY (user_id, week)
+);
+CREATE INDEX IF NOT EXISTS challenge_week ON challenge_entries (week, score);

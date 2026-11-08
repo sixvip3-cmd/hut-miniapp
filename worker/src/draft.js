@@ -73,7 +73,7 @@ async function finish(request, env, uid) {
   const pool = await loadPool(env);
   let verified = 0;
   if (pool.v === d.pool_v) {
-    const err = verifyDraft(pool, d.seed, picks, body.rerolls || {});
+    const err = verifyDraft(pool, d.seed, picks, body.rerolls || {}, body.salAt || {});
     if (err) return json({ error: 'invalid', reason: err }, 422);
     verified = 1;
   }

@@ -119,6 +119,7 @@ const hasCloud = () => !!(tg?.initData && tg.isVersionAtLeast?.('6.9') && tg.Clo
 
 function saveLineup() {
   if (state.draft) return; // в драфте свой состав, сохранённый не трогаем (public/draft.js)
+  if (state.challenge) return saveChallengeLocal(); // состав челленджа хранится отдельно
   const data = JSON.stringify({ slots: state.lineup, captain: state.captain, coach: state.coach });
   try { localStorage.setItem(STORAGE_KEY, data); } catch {}
   if (hasCloud()) {
@@ -409,7 +410,7 @@ function renderTeam() {
   renderStaff(cap, co);
   renderLineup(sum, cap);
   renderChem(sum);
-  if (state.draft) decorateDraftTeam();
+  if (state.draft || state.challenge) decorateDraftTeam();
 }
 
 // ---------- Поиск ----------
@@ -751,7 +752,9 @@ function renderPickerList() {
   const taken = new Set(isCaptain ? [] : lineupPlayers().map(p => p.name.trim().toLowerCase()));
   const fits = isCaptain
     ? () => true
-    : p => (allPos || slotAccepts(slotOf(state.pickerSlot), p)) && !taken.has(p.name.trim().toLowerCase());
+    : state.challenge // челлендж: только своя позиция и карточки, подходящие под условия недели
+      ? p => slotAccepts(slotOf(state.pickerSlot), p) && !taken.has(p.name.trim().toLowerCase()) && challengeAllows(state.challenge.ch, p)
+      : p => (allPos || slotAccepts(slotOf(state.pickerSlot), p)) && !taken.has(p.name.trim().toLowerCase());
   const list = [];
   for (const p of isCaptain ? state.captainCards : state.players) {
     if (fits(p) && matchesQuery(p, q)) list.push(p);

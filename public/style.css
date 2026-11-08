@@ -714,3 +714,16 @@ body.draft-mode .card.empty:not(.now) { opacity: .55; }
 .dgrid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin-bottom: 12px; }
 .dmini { position: relative; aspect-ratio: 804 / 1128; border-radius: 4px; overflow: hidden; background: linear-gradient(160deg, var(--c1, #1c3d78), var(--c2, #06122c)); }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; } .two .btn-primary { margin: 0; }
+
+/* ---------- Челлендж недели ---------- */
+body.challenge-mode #picker-allpos { pointer-events: none; }
+body.challenge-mode label:has(#picker-allpos) { display: none; }
+.dchal h2 { margin: 0 0 8px; font: 600 22px/1.1 var(--display); letter-spacing: 1px; text-transform: uppercase; }
+.dk-r { float: right; color: var(--muted); letter-spacing: 1px; }
+.chalfoot { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); margin: 2px 0 6px; }
+.chalfoot b { color: #e4f5ff; } .prize { font-weight: 700; color: #ffe3a3; white-space: nowrap; }
+.chaltop { margin: 4px 0 2px; } .chaltop .lrow:first-child { border-top: 0; }
+.dnext[disabled] { opacity: .45; }
+.draft-bar .rules { margin: 0 2px 10px; }
+.dmeta .over, .hint.over { color: var(--red); }
+.dsyn .cap.part { color: #9ad9ff; background: rgba(154,217,255,.12); border-color: rgba(154,217,255,.4); }

@@ -15,14 +15,16 @@ fs.rmSync(OUT, { recursive: true, force: true });
 fs.cpSync(PUBLIC, OUT, { recursive: true });
 fs.cpSync(DATA, path.join(OUT, 'data'), { recursive: true });
 
-// Генератор вариантов драфта общий с сервером: в приложение — как обычный скрипт (без export).
-const DRAFT_CORE = path.join(ROOT, 'worker', 'src', 'draft-core.js');
-const draftCore = fs.readFileSync(DRAFT_CORE, 'utf8').replace(/^export /gm, '');
-fs.writeFileSync(path.join(OUT, 'draft-core.js'), draftCore);
+// Правила драфта и челленджа общие с сервером: в приложение — как обычные скрипты (без export).
+const SHARED = ['draft-core.js', 'challenge-core.js'].map(name => {
+  const code = fs.readFileSync(path.join(ROOT, 'worker', 'src', name), 'utf8').replace(/^export /gm, '');
+  fs.writeFileSync(path.join(OUT, name), code);
+  return code;
+});
 
 const hash = crypto.createHash('sha1');
 for (const f of fs.readdirSync(PUBLIC).sort()) hash.update(fs.readFileSync(path.join(PUBLIC, f)));
-hash.update(draftCore);
+SHARED.forEach(code => hash.update(code));
 const version = hash.digest('hex').slice(0, 10);
 
 const index = path.join(OUT, 'index.html');
@@ -49,6 +51,13 @@ console.log(`_site собран, версия ${version}`);
   };
   fs.writeFileSync(path.join(OUT, 'data', 'draft-pool.json'), JSON.stringify(draftPool));
   console.log(`драфт: ${draftPool.players.length} карточек, ${draftPool.captains.length} капитанов, ${draftPool.coaches.length} тренеров, версия ${draftPool.v}`);
+
+  // Для проверки челленджа на сервере: все карточки (позиция, зарплата, рейтинг, команда, страна, имя).
+  const teams = [...new Set(players.map(p => p.team))].sort();
+  const nations = [...new Set(players.map(p => p.nation))].sort();
+  const ti = new Map(teams.map((t, i) => [t, i])), ni = new Map(nations.map((n, i) => [n, i]));
+  const chalPool = { teams, nations, players: players.map(p => [p.id, p.pos, p.salary, p.ovr, ti.get(p.team), ni.get(p.nation), p.name]) };
+  fs.writeFileSync(path.join(OUT, 'data', 'chal-pool.json'), JSON.stringify(chalPool));
 }
 
 // ---------- Индекс для инлайн-поиска бота ----------

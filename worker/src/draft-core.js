@@ -1,6 +1,8 @@
 // Драфт: общий генератор вариантов для приложения и сервера.
-// Варианты зависят только от «зерна» драфта, номера пика, числа перевыбросов и уже выбранного —
-// поэтому сервер может повторить их и проверить, что игрок выбирал из выпавших пяти.
+// Варианты зависят только от «зерна» драфта, номера пика, числа перевыбросов, уже выбранного
+// и бонуса Salary на момент пика — поэтому сервер может повторить их и проверить выбор.
+// На каждый пик — 5 случайных вариантов и запасной список (extra): если среди пяти нет ни одной
+// карточки с бонусом в звене, приложение подставляет первую подходящую из запасного списка.
 // В приложение этот файл попадает как обычный скрипт (scripts/build-site.js убирает export).
 
 export const DRAFT_ORDER = [
@@ -13,9 +15,12 @@ export const DRAFT_ORDER = [
   'COACH',
 ];
 export const DRAFT_OPTIONS = 5;
-export const DRAFT_REROLLS = 2;
-export const DRAFT_CAP = 80; // лимит суммарной зарплаты 20 игроков, $M
-export const DRAFTS_PER_DAY = 3;
+export const DRAFT_REROLLS = 3;
+export const DRAFT_CAP = 80; // базовый лимит суммарной зарплаты 20 игроков, $M (+ бонусы Salary)
+export const DRAFT_SAL_MAX = 40; // больше бонуса Salary в составе не бывает — защита от подмены
+export const DRAFTS_PER_DAY = 5;
+const EXTRA_PLAYERS = 60;
+const EXTRA_COACHES = 100; // тренеров мало (~40) — в запасе все, чтобы найти того, у кого что-то сработает
 
 // mulberry32 — маленький детерминированный генератор случайных чисел
 function rng(seed) {
@@ -35,22 +40,25 @@ export const nameKey = name => String(name).trim().toLowerCase();
 
 // pool: { players: [[id, pos, salary, ovr, name]], captains: [id], coaches: [id] }
 // picks: { CAPTAIN: id, 'F1-LW': id, ..., COACH: id } — выбранное до этого пика
-export function draftOptions(pool, seed, pickIndex, reroll, picks) {
+// salBonus: бонус Salary состава на момент пика (расширяет лимит, как в игре)
+// → { opts: 5 случайных, extra: запасной список для подстановки «варианта с бонусом» }
+export function draftDeal(pool, seed, pickIndex, reroll, picks, salBonus = 0) {
   const key = DRAFT_ORDER[pickIndex];
   const rand = rng((seed ^ Math.imul(pickIndex + 1, 0x9e3779b1) ^ Math.imul(reroll + 1, 0x85ebca6b)) >>> 0);
-  if (key === 'COACH') return sample(pool.coaches.map(id => ({ id, w: 1 })), rand);
+  if (key === 'COACH') return deal(pool.coaches.map(id => ({ id, w: 1 })), rand, EXTRA_COACHES);
 
   const byId = poolIndex(pool);
   const taken = new Set(Object.entries(picks).filter(([k]) => k !== 'COACH').map(([, id]) => byId.get(id)?.[4]).filter(Boolean).map(nameKey));
   if (key === 'CAPTAIN') {
-    return sample(pool.captains.filter(id => byId.has(id)).map(id => ({ id, w: weight(byId.get(id)[3]) })), rand);
+    return deal(pool.captains.filter(id => byId.has(id)).map(id => ({ id, w: weight(byId.get(id)[3]) })), rand, 0);
   }
   // Оставляем запас на каждый ещё не выбранный слот — по самой дешёвой карточке этой позиции,
   // поэтому на любом пике есть хотя бы одна карточка, которая укладывается в лимит.
   const cheapest = minSalaries(pool);
   const reserve = DRAFT_ORDER.slice(pickIndex + 1).filter(k => k !== 'COACH' && k !== 'CAPTAIN')
     .reduce((t, k) => t + cheapest(slotPos(k)), 0);
-  const budget = DRAFT_CAP - salarySpent(pool, picks) - reserve + 1e-6;
+  const sal = Math.max(0, Math.min(Number(salBonus) || 0, DRAFT_SAL_MAX));
+  const budget = DRAFT_CAP + sal - salarySpent(pool, picks) - reserve + 1e-6;
   const slot = slotPos(key);
   const cands = [];
   for (const p of pool.players) {
@@ -58,7 +66,15 @@ export function draftOptions(pool, seed, pickIndex, reroll, picks) {
     if (p[2] > budget) continue;
     cands.push({ id: p[0], w: weight(p[3]) });
   }
-  return sample(cands, rand);
+  return deal(cands, rand, EXTRA_PLAYERS);
+}
+
+// Для совместимости: только 5 случайных вариантов.
+export const draftOptions = (...a) => draftDeal(...a).opts;
+
+function deal(cands, rand, extraCount) {
+  const all = sample(cands, rand, DRAFT_OPTIONS + extraCount);
+  return { opts: all.slice(0, DRAFT_OPTIONS), extra: all.slice(DRAFT_OPTIONS) };
 }
 
 export function salarySpent(pool, picks) {
@@ -71,10 +87,10 @@ export function salarySpent(pool, picks) {
 // Чем выше рейтинг, тем чаще выпадает карточка, но сильные — редкость.
 const weight = ovr => Math.pow(Math.max(1, ovr - 79), 1.25);
 
-function sample(cands, rand) {
+function sample(cands, rand, n = DRAFT_OPTIONS) {
   const out = [];
   const list = cands.slice();
-  while (out.length < DRAFT_OPTIONS && list.length) {
+  while (out.length < n && list.length) {
     const total = list.reduce((t, c) => t + c.w, 0);
     let r = rand() * total;
     let i = 0;
@@ -116,9 +132,10 @@ function poolIndex(pool) {
   return m;
 }
 
-// Проверка завершённого драфта: каждый выбор — из выпавших вариантов, игроки не повторяются,
-// перевыбросов не больше разрешённого. rerolls: { [pickIndex]: сколько раз перевыбрасывали }.
-export function verifyDraft(pool, seed, picks, rerolls) {
+// Проверка завершённого драфта: каждый выбор — из выпавших вариантов (5 + запасной список),
+// игроки не повторяются, перевыбросов не больше разрешённого, зарплата в лимите.
+// rerolls: { [pickIndex]: сколько раз перевыбрасывали }, salAt: { [pickIndex]: бонус Salary на момент пика }.
+export function verifyDraft(pool, seed, picks, rerolls, salAt = {}) {
   const used = Object.values(rerolls || {}).reduce((t, n) => t + n, 0);
   if (used > DRAFT_REROLLS) return 'too many rerolls';
   const done = {};
@@ -126,11 +143,12 @@ export function verifyDraft(pool, seed, picks, rerolls) {
     const key = DRAFT_ORDER[i];
     const choice = picks[key];
     if (choice == null) return `missing ${key}`;
-    const opts = draftOptions(pool, seed, i, rerolls?.[i] || 0, done);
-    if (!opts.includes(choice)) return `bad pick ${key}`;
+    const { opts, extra } = draftDeal(pool, seed, i, rerolls?.[i] || 0, done, salAt?.[i] || 0);
+    if (!opts.includes(choice) && !extra.includes(choice)) return `bad pick ${key}`;
     done[key] = choice;
   }
-  if (salarySpent(pool, picks) > DRAFT_CAP + 0.05) return 'salary cap';
+  const maxSal = Math.max(0, ...Object.values(salAt || {}).map(v => Math.min(Number(v) || 0, DRAFT_SAL_MAX)));
+  if (salarySpent(pool, picks) > DRAFT_CAP + maxSal + 0.05) return 'salary cap';
   return null;
 }
 
