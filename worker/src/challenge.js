@@ -13,8 +13,8 @@ async function loadPool(env) {
   if (poolCache && poolCache.at > Date.now() - 10 * 60e3) return poolCache.map;
   const res = await env.ASSETS.fetch(new Request('https://assets.local/data/chal-pool.json'));
   const pool = await res.json();
-  const map = new Map(pool.players.map(([id, pos, salary, ovr, t, n, name]) =>
-    [id, { id, pos, salary, ovr, team: pool.teams[t], nation: pool.nations[n], name }]));
+  const map = new Map(pool.players.map(([id, pos, salary, ovr, t, n, name, c, l]) =>
+    [id, { id, pos, salary, ovr, team: pool.teams[t], nation: pool.nations[n], name, card: pool.cards[c], league: pool.leagues[l] }]));
   poolCache = { map, at: Date.now() };
   return map;
 }

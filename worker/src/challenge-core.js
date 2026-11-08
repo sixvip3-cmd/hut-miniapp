@@ -11,15 +11,40 @@ export const CONFERENCES = {
     'SAN JOSE SHARKS', 'SEATTLE KRAKEN', 'VANCOUVER CANUCKS', 'VEGAS GOLDEN KNIGHTS'],
 };
 
+export const ORIGINAL_SIX = ['BOSTON BRUINS', 'CHICAGO BLACKHAWKS', 'DETROIT RED WINGS', 'MONTREAL CANADIENS', 'NEW YORK RANGERS', 'TORONTO MAPLE LEAFS'];
+
+// «Один за всех»: клуб меняется каждый раз, когда челлендж выпадает (только клубы, из которых собирается полный состав).
+export const ONE_CLUB = [
+  ['EDMONTON OILERS', 'Эдмонтон'], ['TORONTO MAPLE LEAFS', 'Торонто'], ['PITTSBURGH PENGUINS', 'Питтсбург'],
+  ['MONTREAL CANADIENS', 'Монреаль'], ['DETROIT RED WINGS', 'Детройт'], ['CHICAGO BLACKHAWKS', 'Чикаго'],
+  ['BOSTON BRUINS', 'Бостон'], ['NEW YORK RANGERS', 'Рейнджерс'], ['WASHINGTON CAPITALS', 'Вашингтон'],
+  ['TAMPA BAY LIGHTNING', 'Тампа'], ['COLORADO AVALANCHE', 'Колорадо'], ['VEGAS GOLDEN KNIGHTS', 'Вегас'],
+  ['FLORIDA PANTHERS', 'Флорида'], ['NEW YORK ISLANDERS', 'Айлендерс'], ['LOS ANGELES KINGS', 'Лос-Анджелес'],
+  ['PHILADELPHIA FLYERS', 'Филадельфия'], ['DALLAS STARS', 'Даллас'], ['ST. LOUIS BLUES', 'Сент-Луис'],
+  ['OTTAWA SENATORS', 'Оттава'], ['VANCOUVER CANUCKS', 'Ванкувер'], ['CALGARY FLAMES', 'Калгари'],
+  ['WINNIPEG JETS', 'Виннипег'], ['NEW JERSEY DEVILS', 'Нью-Джерси'], ['CAROLINA HURRICANES', 'Каролина'],
+  ['MINNESOTA WILD', 'Миннесота'], ['NASHVILLE PREDATORS', 'Нэшвилл'], ['BUFFALO SABRES', 'Баффало'],
+  ['COLUMBUS BLUE JACKETS', 'Коламбус'], ['ANAHEIM DUCKS', 'Анахайм'], ['SAN JOSE SHARKS', 'Сан-Хосе'],
+];
+
+// Порядок недель. «Ледяная стена» — первая неделя (2 ноября 2026), дальше по кругу.
 export const CHALLENGES = [
   { id: 'ice-wall', title: 'Ледяная стена', cap: 60, conference: 'east', goalieMin: 85,
     rules: ['💰 Зарплата до $60M', '🏒 Только Восточная конференция', '🧤 Вратари 85+'] },
+  { id: 'red-machine', title: 'Красная машина', cap: 45, nations: ['RUSSIA'], rules: ['💰 Зарплата до $45M', '🇷🇺 Только русские'] },
   { id: 'wild-west', title: 'Дикий Запад', cap: 70, conference: 'west', rules: ['💰 Зарплата до $70M', '🤠 Только Западная конференция'] },
+  { id: 'original-six', title: 'Оригинальная шестёрка', cap: 55, teams: ORIGINAL_SIX,
+    rules: ['💰 Зарплата до $55M', '🏛 Бостон, Чикаго, Детройт, Монреаль, Рейнджерс, Торонто'] },
   { id: 'maple', title: 'Кленовый лист', cap: 75, nations: ['CANADA'], rules: ['💰 Зарплата до $75M', '🇨🇦 Только канадцы'] },
+  { id: 'legends', title: 'Легенды', cap: 50, legends: true, rules: ['💰 Зарплата до $50M', '🏆 Только легенды: Alumni и ICONS'] },
   { id: 'no-stars', title: 'Без звёзд', cap: 80, maxOvr: 85, rules: ['💰 Зарплата до $80M', '⭐ Карточки не выше 85 OVR'] },
+  { id: 'one-club', title: 'Один за всех', cap: 50, oneClub: true, rules: ['💰 Зарплата до $50M'] },
   { id: 'budget', title: 'Экономия', cap: 50, rules: ['💰 Зарплата до $50M', '🎴 Любые карточки'] },
+  { id: 'base-school', title: 'Базовая школа', cap: 70, baseOnly: true, rules: ['💰 Зарплата до $70M', '🃏 Только Base-карточки'] },
   { id: 'stars-stripes', title: 'Звёзды и полосы', cap: 75, nations: ['USA'], rules: ['💰 Зарплата до $75M', '🇺🇸 Только американцы'] },
+  { id: 'outside-nhl', title: 'Вне НХЛ', cap: 30, outsideNhl: true, rules: ['💰 Зарплата до $30M', '🌍 АХЛ, Европа и юниоры — без НХЛ и легенд'] },
   { id: 'europe', title: 'Европейский экспресс', cap: 80, excludeNations: ['CANADA', 'USA'], rules: ['💰 Зарплата до $80M', '🇪🇺 Без канадцев и американцев'] },
+  { id: 'cap3', title: 'Потолок $3M', cap: 60, maxSalary: 3, rules: ['💵 Каждая карточка не дороже $3M'] },
 ];
 export const CHALLENGE_SLOTS = [
   'F1-LW', 'F1-C', 'F1-RW', 'F2-LW', 'F2-C', 'F2-RW', 'F3-LW', 'F3-C', 'F3-RW', 'F4-LW', 'F4-C', 'F4-RW',
@@ -34,18 +59,28 @@ const MSK = 3 * 3600e3;
 export function challengeNow(ms = Date.now()) {
   const n = Math.floor((ms + MSK - EPOCH) / WEEK);
   const start = EPOCH + n * WEEK;
-  return {
-    week: new Date(start).toISOString().slice(0, 10),
-    ch: CHALLENGES[((n % CHALLENGES.length) + CHALLENGES.length) % CHALLENGES.length],
-    endsAt: Math.floor((start + WEEK - MSK) / 1000),
-  };
+  const L = CHALLENGES.length;
+  let ch = CHALLENGES[((n % L) + L) % L];
+  if (ch.oneClub) {
+    // клуб — следующий по списку при каждом новом круге челленджей
+    const [team, ru] = ONE_CLUB[((Math.floor(n / L) % ONE_CLUB.length) + ONE_CLUB.length) % ONE_CLUB.length];
+    ch = { ...ch, title: `Один за всех: ${ru}`, teams: [team], rules: [...ch.rules, `🏒 Только ${ru} и его легенды`] };
+  }
+  return { week: new Date(start).toISOString().slice(0, 10), ch, endsAt: Math.floor((start + WEEK - MSK) / 1000) };
 }
 
 export const teamKey = team => String(team || '').toUpperCase().replace(/\s+ALUMNI$/, '').trim();
 
-// p: { pos, ovr, team, nation }
+const isLegend = p => p.league === 'NHLAA' || /\sALUMNI$/i.test(String(p.team || '')) || /ICONS/i.test(String(p.card || ''));
+
+// p: { pos, ovr, team, nation, card, league, salary }
 export function challengeAllows(ch, p) {
   if (ch.conference && !CONFERENCES[ch.conference].includes(teamKey(p.team))) return false;
+  if (ch.teams && !ch.teams.includes(teamKey(p.team))) return false;
+  if (ch.legends && !isLegend(p)) return false;
+  if (ch.baseOnly && !/^base$/i.test(String(p.card || '').trim())) return false;
+  if (ch.outsideNhl && (p.league === 'NHL' || p.league === 'NHLAA')) return false;
+  if (ch.maxSalary && p.salary > ch.maxSalary) return false;
   const nation = String(p.nation || '').toUpperCase();
   if (ch.nations && !ch.nations.includes(nation)) return false;
   if (ch.excludeNations && ch.excludeNations.includes(nation)) return false;

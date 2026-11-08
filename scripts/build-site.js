@@ -55,8 +55,12 @@ console.log(`_site собран, версия ${version}`);
   // Для проверки челленджа на сервере: все карточки (позиция, зарплата, рейтинг, команда, страна, имя).
   const teams = [...new Set(players.map(p => p.team))].sort();
   const nations = [...new Set(players.map(p => p.nation))].sort();
-  const ti = new Map(teams.map((t, i) => [t, i])), ni = new Map(nations.map((n, i) => [n, i]));
-  const chalPool = { teams, nations, players: players.map(p => [p.id, p.pos, p.salary, p.ovr, ti.get(p.team), ni.get(p.nation), p.name]) };
+  const cards = [...new Set(players.map(p => p.card))].sort();
+  const leagues = [...new Set(players.map(p => p.league))].sort();
+  const idx = list => new Map(list.map((v, i) => [v, i]));
+  const ti = idx(teams), ni = idx(nations), ci = idx(cards), li = idx(leagues);
+  const chalPool = { teams, nations, cards, leagues,
+    players: players.map(p => [p.id, p.pos, p.salary, p.ovr, ti.get(p.team), ni.get(p.nation), p.name, ci.get(p.card), li.get(p.league)]) };
   fs.writeFileSync(path.join(OUT, 'data', 'chal-pool.json'), JSON.stringify(chalPool));
 }
 
