@@ -99,6 +99,7 @@ async function startDraft(fresh = false) {
     const local = loadDraftLocal();
     state.draft = local?.id === res.id ? local : { id: res.id, seed: res.seed, poolV: res.poolV, pick: 0, picks: {}, rerolls: {}, salAt: {}, rerollsLeft: DRAFT_REROLLS };
     state.draft.salAt ||= {};
+    state.draftResult = null; // прошлый результат уже показан — при выходе вернёмся на главную вкладки
     saveDraftLocal();
     if (res.expired) toast('База карточек обновилась — прошлый драфт не засчитан, попытка не потрачена');
     const p = state.draft.picks;
