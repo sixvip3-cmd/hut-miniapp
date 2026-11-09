@@ -6,7 +6,7 @@
 // карточками — не считается дважды). Бонусы всех активных комбинаций линии складываются.
 // Звенья нападения используют комбинации Forwards, пары защиты — Defense, вратари — Goalies.
 
-const CHEMISTRY = {
+export const CHEMISTRY = {
   baseSalaryCap: 80, // $M, как в игре и на hutdb
   maxAp: 40,
   types: {
@@ -16,7 +16,7 @@ const CHEMISTRY = {
   },
 };
 
-const LINES = [
+export const LINES = [
   { id: 'F1', label: 'Звено 1', cat: 'F', slots: ['LW', 'C', 'RW'] },
   { id: 'F2', label: 'Звено 2', cat: 'F', slots: ['LW', 'C', 'RW'] },
   { id: 'F3', label: 'Звено 3', cat: 'F', slots: ['LW', 'C', 'RW'] },
@@ -109,7 +109,7 @@ function nearMisses(line, players, combos, type, limit = 3) {
   return result.sort((a, b) => b.combo.boost[type] - a.combo.boost[type]).slice(0, limit);
 }
 
-function teamSummary(lineup, playersById, combos) {
+export function teamSummary(lineup, playersById, combos) {
   let ovrSum = 0, count = 0, salary = 0;
   const boost = emptyBoost();
   const lines = {};
@@ -183,7 +183,7 @@ function bestCombosFor(player, allPlayers, combos, { limitCombos = 5, limitPartn
 // Бонус (+AP / +SAL) активен, когда в составе набирается нужное число игроков из клубов
 // или стран капитана. Сам капитан тоже считается. Клуб засчитывается и для его Alumni-карточек.
 
-function captainRuleFor(p, rules) {
+export function captainRuleFor(p, rules) {
   if (!p) return null;
   const byId = rules.find(r => r.playerId != null && Number(r.playerId) === p.id);
   if (byId) return byId;
@@ -214,7 +214,7 @@ function captainMatch(p, rule, keys = captainTeamKeys(rule)) {
   return rule.nations.includes(nation) ? nation : null;
 }
 
-function captainStatus(captain, lineupPlayers, rules) {
+export function captainStatus(captain, lineupPlayers, rules) {
   const rule = captainRuleFor(captain, rules);
   if (!rule) return null;
   const keys = captainTeamKeys(rule);
@@ -268,7 +268,7 @@ function matchedCount(combo, players) {
   return 0;
 }
 
-function coachStatus(coach, lineup, playersById) {
+export function coachStatus(coach, lineup, playersById) {
   const total = emptyBoost();
   const lineTotals = {};
   let activeCount = 0;

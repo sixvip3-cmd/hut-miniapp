@@ -15,10 +15,18 @@ fs.rmSync(OUT, { recursive: true, force: true });
 fs.cpSync(PUBLIC, OUT, { recursive: true });
 fs.cpSync(DATA, path.join(OUT, 'data'), { recursive: true });
 
-// Правила драфта и челленджа общие с сервером: в приложение — как обычные скрипты (без export).
-const SHARED = ['draft-core.js', 'challenge-core.js'].map(name => {
-  const code = fs.readFileSync(path.join(ROOT, 'worker', 'src', name), 'utf8').replace(/^export /gm, '');
-  fs.writeFileSync(path.join(OUT, name), code);
+// Сыгранность, очки, правила драфта и челленджа общие с сервером: сервер пересчитывает очки
+// тем же кодом, что видит пользователь. В приложение — как обычные скрипты (без import/export).
+const SHARED = [
+  ['chemistry-core.js', 'chemistry.js'],
+  ['draft-core.js', 'draft-core.js'],
+  ['challenge-core.js', 'challenge-core.js'],
+  ['score-core.js', 'score-core.js'],
+].map(([src, out]) => {
+  const code = fs.readFileSync(path.join(ROOT, 'worker', 'src', src), 'utf8')
+    .replace(/^import [^;]*;\n/gm, '')
+    .replace(/^export /gm, '');
+  fs.writeFileSync(path.join(OUT, out), code);
   return code;
 });
 

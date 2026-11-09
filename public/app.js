@@ -205,7 +205,7 @@ function renderSummary(sum) {
   const over = sum.salary > sum.salaryCap;
   $('#sum-salary').textContent = `$${sum.salary.toFixed(1)}M`;
   $('#sum-salary').classList.toggle('over', over);
-  $('#sum-cap').textContent = `/ $${sum.salaryCap}M${sum.boost.SAL ? ` (+${sum.boost.SAL})` : ''}`;
+  $('#sum-cap').textContent = `/ $${sum.salaryCap}M${sum.boost.SAL && !sum.fixedCap ? ` (+${sum.boost.SAL})` : ''}`;
   $('#bar-salary').classList.toggle('over', over);
   $('#bar-salary i').style.width = `${Math.min(100, (sum.salary / sum.salaryCap) * 100)}%`;
 
@@ -405,6 +405,8 @@ function renderTeam() {
     if (sum.count) sum.ovr = Math.round(sum.ovr + extraOvr / sum.count);
   }
   state.coachState = co;
+  // В челлендже лимит зарплаты фиксированный (условие недели), бонусы Salary его не расширяют.
+  if (state.challenge) { sum.salaryCap = state.challenge.ch.cap; sum.fixedCap = true; }
   state.lastSum = sum;
   renderSummary(sum);
   renderStaff(cap, co);

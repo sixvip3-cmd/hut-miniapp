@@ -1,23 +1,16 @@
 // Челлендж недели на сервере: таблица и отправка состава.
 //   GET  /s/<токен>/api/challenge/board  → { ch, week, endsAt, top, me, players }
-//   POST /s/<токен>/api/challenge/submit { week, picks, breakdown } → { score, best, place }
-// Сервер сам проверяет условия (challenge-core.js) по полной базе карточек и считает базовые очки.
+//   POST /s/<токен>/api/challenge/submit { week, picks } → { score, best, place }
+// Сервер сам проверяет условия (challenge-core.js) по полной базе карточек, капитана и тренера
+// и сам считает очки (score-core.js) — очкам из приложения не доверяем.
 
 import { CHALLENGE_SLOTS, challengeCheck, challengeNow } from './challenge-core.js';
+import { captainRuleFor } from './chemistry-core.js';
+import { scoreLineup } from './score-core.js';
+import { gameData } from './game-data.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
-
-let poolCache = null;
-async function loadPool(env) {
-  if (poolCache && poolCache.at > Date.now() - 10 * 60e3) return poolCache.map;
-  const res = await env.ASSETS.fetch(new Request('https://assets.local/data/chal-pool.json'));
-  const pool = await res.json();
-  const map = new Map(pool.players.map(([id, pos, salary, ovr, t, n, name, c, l]) =>
-    [id, { id, pos, salary, ovr, team: pool.teams[t], nation: pool.nations[n], name, card: pool.cards[c], league: pool.leagues[l] }]));
-  poolCache = { map, at: Date.now() };
-  return map;
-}
 
 export async function handleChallenge(request, env, uid, path) {
   if (path === '/api/challenge/board') return board(env, uid);
@@ -54,23 +47,25 @@ async function submit(request, env, uid) {
   const body = await request.json().catch(() => null);
   const { week, ch } = challengeNow();
   if (!body?.picks || body.week !== week) return json({ error: 'week_over', message: 'Неделя челленджа закончилась — обнови приложение' }, 409);
-  const pool = await loadPool(env);
+  const data = await gameData(env);
   const lineup = {};
   for (const k of CHALLENGE_SLOTS) {
-    const p = pool.get(Number(body.picks[k]));
+    const p = data.byId[Number(body.picks[k])];
     if (p) lineup[k] = p;
   }
   const err = challengeCheck(ch, lineup);
   if (err) return json({ error: 'invalid', message: err }, 422);
-  // Очки как в драфте: 4 × средний рейтинг (считает сервер) + бонусы сыгранности, капитана и тренера.
-  const avg = CHALLENGE_SLOTS.reduce((t, k) => t + lineup[k].ovr, 0) / CHALLENGE_SLOTS.length;
-  const b = body.breakdown || {};
-  const clamp = (v, max) => Math.max(0, Math.min(Math.round(Number(v) || 0), max));
-  const base = Math.round(avg * 4);
-  const chem = clamp(b.chem, 160), captain = clamp(b.captain, 40), coach = clamp(b.coach, 60);
-  const score = base + chem + captain + coach;
-  const breakdown = JSON.stringify({ base, avgOvr: Math.round(avg * 10) / 10, chem, captain, coach });
-  const picks = JSON.stringify({ ...Object.fromEntries(CHALLENGE_SLOTS.map(k => [k, lineup[k].id])), CAPTAIN: body.picks.CAPTAIN ?? null, COACH: body.picks.COACH ?? null });
+  // Капитан — любая карточка капитана, тренер — любой из базы (как в приложении); выдуманные не принимаем.
+  const captainId = body.picks.CAPTAIN == null ? null : Number(body.picks.CAPTAIN);
+  const coachId = body.picks.COACH == null ? null : String(body.picks.COACH);
+  if (captainId != null && !captainRuleFor(data.byId[captainId], data.captains)) return json({ error: 'invalid', message: 'Неизвестный капитан' }, 422);
+  if (coachId != null && !data.coaches.some(c => c.id === coachId)) return json({ error: 'invalid', message: 'Неизвестный тренер' }, 422);
+  // Очки как в драфте: 4 × средний рейтинг + бонусы сыгранности, капитана и тренера — считает сервер.
+  const ids = Object.fromEntries(CHALLENGE_SLOTS.map(k => [k, lineup[k].id]));
+  const sc = scoreLineup(ids, captainId, coachId, data);
+  const score = sc.total;
+  const breakdown = JSON.stringify({ base: sc.base, avgOvr: sc.avgOvr, chem: sc.chem, captain: sc.captain, coach: sc.coach });
+  const picks = JSON.stringify({ ...ids, CAPTAIN: captainId, COACH: coachId });
   // Храним лучший результат недели.
   await env.DB.prepare(
     `INSERT INTO challenge_entries (user_id, week, ch_id, score, breakdown, picks, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)

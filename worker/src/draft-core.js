@@ -182,10 +182,3 @@ export function verifyDraft(pool, seed, picks, rerolls, salAt = {}) {
   if (salarySpent(pool, picks) > DRAFT_CAP + maxSal + 0.05) return 'salary cap';
   return null;
 }
-
-// Средний рейтинг 20 карточек без бонусов — для проверки очков на сервере.
-export function rawAvgOvr(pool, picks) {
-  const byId = poolIndex(pool);
-  const ids = DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH').map(k => picks[k]);
-  return ids.reduce((t, id) => t + (byId.get(id)?.[3] || 0), 0) / ids.length;
-}

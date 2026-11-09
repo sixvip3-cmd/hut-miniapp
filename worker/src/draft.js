@@ -4,7 +4,9 @@
 //   GET  /s/<токен>/api/draft/board?period=day|week|all → { top, me, left }
 // Варианты пиков сервер повторяет тем же генератором (draft-core.js) по пулу карточек из сборки.
 
-import { DRAFT_CAP, DRAFT_ORDER, DRAFTS_PER_DAY, rawAvgOvr, verifyDraft } from './draft-core.js';
+import { DRAFT_CAP, DRAFT_ORDER, DRAFTS_PER_DAY, verifyDraft } from './draft-core.js';
+import { draftSalAtPicks, scoreLineup } from './score-core.js';
+import { gameData } from './game-data.js';
 import { isAdmin, now } from './db.js';
 
 const json = (data, status = 200) =>
@@ -19,17 +21,11 @@ function weekStart(t) {
   return new Date(d.getTime() - back * 86400e3).toISOString().slice(0, 10);
 }
 
-let poolCache = null;
-async function loadPool(env) {
-  if (poolCache && poolCache.at > Date.now() - 10 * 60e3) return poolCache.pool;
-  const res = await env.ASSETS.fetch(new Request('https://assets.local/data/draft-pool.json'));
-  const pool = await res.json();
-  poolCache = { pool, at: Date.now() };
-  return pool;
-}
 
+// Попыткой считается законченный или брошенный драфт. «expired» — драфт, начатый до обновления
+// базы карточек: проверить его уже нельзя, поэтому он не засчитывается и попытку не тратит.
 async function usedToday(env, uid) {
-  const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM drafts WHERE user_id = ? AND day = ? AND status != 'active'")
+  const r = await env.DB.prepare("SELECT COUNT(*) AS n FROM drafts WHERE user_id = ? AND day = ? AND status IN ('done', 'abandoned')")
     .bind(uid, dayOf(now())).first();
   return r.n;
 }
@@ -45,19 +41,26 @@ export async function handleDraft(request, env, uid, path) {
 async function start(request, env, uid) {
   const { fresh } = await request.json().catch(() => ({}));
   const t = now();
-  const active = await env.DB.prepare("SELECT id, seed, pool_v FROM drafts WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1")
+  const { draftPool: pool } = await gameData(env);
+  let active = await env.DB.prepare("SELECT id, seed, pool_v FROM drafts WHERE user_id = ? AND status = 'active' ORDER BY created_at DESC LIMIT 1")
     .bind(uid).first();
+  // База карточек обновилась после старта: варианты уже не повторить — драфт не засчитываем.
+  let expired = false;
+  if (active && active.pool_v !== pool.v) {
+    await env.DB.prepare("UPDATE drafts SET status = 'expired', finished_at = ? WHERE id = ?").bind(t, active.id).run();
+    active = null;
+    expired = true;
+  }
   if (active && !fresh) return json({ id: active.id, seed: active.seed, poolV: active.pool_v, resumed: true, left: await leftToday(env, uid) });
   // Брошенный драфт засчитывается как сыгранный — иначе можно перезапускать до удачных вариантов.
   if (active) await env.DB.prepare("UPDATE drafts SET status = 'abandoned', finished_at = ? WHERE id = ?").bind(t, active.id).run();
   const left = await leftToday(env, uid);
   if (left <= 0) return json({ error: 'limit', left: 0 }, 429);
-  const pool = await loadPool(env);
   const id = crypto.randomUUID();
   const seed = crypto.getRandomValues(new Uint32Array(1))[0];
   await env.DB.prepare("INSERT INTO drafts (id, user_id, day, seed, pool_v, status, created_at) VALUES (?, ?, ?, ?, ?, 'active', ?)")
     .bind(id, uid, dayOf(t), seed, pool.v, t).run();
-  return json({ id, seed, poolV: pool.v, resumed: false, left: left - 1 });
+  return json({ id, seed, poolV: pool.v, resumed: false, expired, left: left - 1 });
 }
 
 async function finish(request, env, uid) {
@@ -66,26 +69,28 @@ async function finish(request, env, uid) {
   const d = await env.DB.prepare('SELECT * FROM drafts WHERE id = ? AND user_id = ?').bind(body.id, uid).first();
   if (!d) return json({ error: 'not_found' }, 404);
   if (d.status === 'done') return json({ score: d.score, already: true });
+  if (d.status === 'expired') return json({ error: 'pool_changed', left: await leftToday(env, uid) }, 409);
   if (d.status !== 'active') return json({ error: 'abandoned' }, 409);
 
   const picks = {};
   for (const k of DRAFT_ORDER) picks[k] = k === 'COACH' ? String(body.picks[k] ?? '') : Number(body.picks[k]);
-  const pool = await loadPool(env);
-  let verified = 0;
-  if (pool.v === d.pool_v) {
-    const err = verifyDraft(pool, d.seed, picks, body.rerolls || {}, body.salAt || {});
-    if (err) return json({ error: 'invalid', reason: err }, 422);
-    verified = 1;
+  const data = await gameData(env);
+  // Результат принимаем только проверенным: каждый выбор — из выпавших вариантов того же пула.
+  if (data.draftPool.v !== d.pool_v) {
+    await env.DB.prepare("UPDATE drafts SET status = 'expired', finished_at = ? WHERE id = ?").bind(now(), d.id).run();
+    return json({ error: 'pool_changed', left: await leftToday(env, uid) }, 409);
   }
-  // Очки: 4 × средний рейтинг карточек (сервер пересчитывает сам) + бонусы сыгранности, капитана и тренера.
-  const base = Math.round(rawAvgOvr(pool, picks) * 4);
-  const b = body.breakdown || {};
-  const clamp = (v, max) => Math.max(0, Math.min(Math.round(Number(v) || 0), max));
-  const chem = clamp(b.chem, 160), captain = clamp(b.captain, 40), coach = clamp(b.coach, 60);
-  const score = (verified ? base : Math.min(base, Math.round(Number(b.base) || base))) + chem + captain + coach;
-  const breakdown = { base, avgOvr: Math.round(rawAvgOvr(pool, picks) * 10) / 10, chem, captain, coach, boost: b.boost || null, cap: DRAFT_CAP };
-  await env.DB.prepare("UPDATE drafts SET status = 'done', score = ?, breakdown = ?, picks = ?, verified = ?, finished_at = ? WHERE id = ?")
-    .bind(score, JSON.stringify(breakdown), JSON.stringify(picks), verified, now(), d.id).run();
+  // Бонус Salary на каждом пике (от него зависит лимит зарплаты и варианты) сервер считает сам.
+  const err = verifyDraft(data.draftPool, d.seed, picks, body.rerolls || {}, draftSalAtPicks(picks, data));
+  if (err) return json({ error: 'invalid', reason: err }, 422);
+
+  // Очки сервер считает сам — тем же кодом, что приложение (score-core.js).
+  const lineup = Object.fromEntries(DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH').map(k => [k, picks[k]]));
+  const sc = scoreLineup(lineup, picks.CAPTAIN, picks.COACH, data);
+  const score = sc.total;
+  const breakdown = { base: sc.base, avgOvr: sc.avgOvr, chem: sc.chem, captain: sc.captain, coach: sc.coach, boost: sc.boost, cap: DRAFT_CAP };
+  await env.DB.prepare("UPDATE drafts SET status = 'done', score = ?, breakdown = ?, picks = ?, verified = 1, finished_at = ? WHERE id = ?")
+    .bind(score, JSON.stringify(breakdown), JSON.stringify(picks), now(), d.id).run();
   const place = await env.DB.prepare(
     `SELECT COUNT(*) + 1 AS n FROM (SELECT user_id, MAX(score) AS best FROM drafts WHERE status = 'done' AND day = ? GROUP BY user_id)
      WHERE best > ?`).bind(d.day, score).first();

@@ -21,8 +21,12 @@ async function draftApi(path, body) {
   return data;
 }
 
-async function draftPool() {
-  if (!state.draftPool) state.draftPool = await (await fetch('data/draft-pool.json')).json();
+// Пул карточек драфта. Если на сервере уже новая версия (база обновилась, пока приложение открыто) —
+// перечитываем файл, иначе варианты в приложении и на сервере не совпадут.
+async function draftPool(v) {
+  if (!state.draftPool || (v && state.draftPool.v !== v)) {
+    state.draftPool = await (await fetch(`data/draft-pool.json${v ? `?v=${v}` : ''}`, v ? { cache: 'reload' } : {})).json();
+  }
   return state.draftPool;
 }
 
@@ -40,34 +44,14 @@ function saveChallengeLocal() {
 }
 
 // ---------- Очки (драфт и челлендж) ----------
-// 4 × средний рейтинг 20 карточек + бонусы: сыгранность звеньев, капитан, тренер (OVR считаем ×3).
-function draftScore() {
-  const ids = DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH').map(k => state.lineup[k]).filter(Boolean);
-  const avg = ids.length ? ids.reduce((t, id) => t + state.byId[id].ovr, 0) / ids.length : 0;
-  const lines = teamSummary(state.lineup, state.byId, state.combos).boost;
-  const captain = state.byId[state.captain];
-  const cap = captain ? captainStatus(captain, lineupPlayers(), state.captains) : null;
-  const coach = coachById(state.coach);
-  const co = coach ? coachStatus(coach, state.lineup, state.byId) : null;
-  const pts = b => b.OVR * 3 + b.SAL + b.AP;
-  const part = {
-    base: Math.round(avg * 4),
-    avgOvr: Math.round(avg * 10) / 10,
-    chem: pts(lines),
-    captain: cap ? cap.ap + cap.sal : 0,
-    coach: co ? pts(co.total) : 0,
-    boost: lines,
-    capInfo: cap ? { met: cap.met, count: cap.count, needed: cap.rule.needed } : null,
-    coachInfo: co ? { active: co.activeCount, of: co.combos.length, total: co.total } : null,
-  };
-  part.total = part.base + part.chem + part.captain + part.coach;
-  return part;
-}
+// Считаются общим кодом с сервером (score-core.js): что видит игрок, то и засчитает сервер.
+const draftScore = () => scoreLineup(state.lineup, state.captain, state.coach,
+  { byId: state.byId, combos: state.combos, captains: state.captains, coaches: state.coaches });
 
 const lineupSalary = () => Math.round(DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH')
   .reduce((t, k) => t + (state.byId[state.lineup[k]]?.salary || 0), 0) * 10) / 10;
 // Бонус Salary состава сейчас (звенья + капитан + тренер) — в драфте расширяет лимит, как в игре.
-const draftSalBonus = () => Math.max(0, state.lastSum?.boost?.SAL || 0);
+const draftSalBonus = () => draftScore().salBonus; // так же считает сервер (score-core.js)
 const draftCap = () => DRAFT_CAP + (state.draft?.salAt?.[state.draft.pick] ?? draftSalBonus());
 
 // ---------- Вход и выход: драфт и челлендж идут на экране состава ----------
@@ -109,12 +93,14 @@ function confirmThen(text, fn) {
 // ---------- Драфт ----------
 async function startDraft(fresh = false) {
   try {
-    const [res, pool] = await Promise.all([draftApi('draft/start', { fresh }), draftPool()]);
+    const res = await draftApi('draft/start', { fresh });
+    const pool = await draftPool(res.poolV);
+    if (pool.v !== res.poolV) throw new Error('pool');
     const local = loadDraftLocal();
     state.draft = local?.id === res.id ? local : { id: res.id, seed: res.seed, poolV: res.poolV, pick: 0, picks: {}, rerolls: {}, salAt: {}, rerollsLeft: DRAFT_REROLLS };
     state.draft.salAt ||= {};
-    if (pool.v !== res.poolV) state.draft.stalePool = true;
     saveDraftLocal();
+    if (res.expired) toast('База карточек обновилась — прошлый драфт не засчитан, попытка не потрачена');
     const p = state.draft.picks;
     enterBuildMode(Object.fromEntries(Object.entries(p).filter(([k]) => k !== 'CAPTAIN' && k !== 'COACH')), p.CAPTAIN, p.COACH, 'draft');
     haptic('medium');
@@ -286,13 +272,26 @@ async function finishDraft() {
   const d = state.draft;
   const sc = draftScore();
   try {
-    const res = await draftApi('draft/finish', { id: d.id, picks: d.picks, rerolls: d.rerolls, salAt: d.salAt, breakdown: sc });
-    state.draftResult = { ...sc, total: res.score, base: res.breakdown?.base ?? sc.base, place: res.place, left: res.left, picks: { ...d.picks } };
+    const res = await draftApi('draft/finish', { id: d.id, picks: d.picks, rerolls: d.rerolls });
+    // Показываем очки, которые засчитал сервер (он пересчитывает их сам).
+    const b = res.breakdown || {};
+    state.draftResult = { ...sc, ...(res.already ? {} : { base: b.base, avgOvr: b.avgOvr, chem: b.chem, captain: b.captain, coach: b.coach }),
+      total: res.score, place: res.place, left: res.left, picks: { ...d.picks } };
     clearDraftLocal();
     exitBuildMode();
     renderDraftResult();
     haptic('heavy');
   } catch (err) {
+    const code = err.data?.error;
+    if (code === 'pool_changed' || code === 'invalid' || code === 'abandoned') {
+      // Результат не принят, и повторять бессмысленно — выходим из драфта.
+      clearDraftLocal();
+      exitBuildMode();
+      renderDraftHome();
+      return toast(code === 'pool_changed'
+        ? 'Пока шёл драфт, обновилась база карточек — драфт не засчитан, попытка не потрачена'
+        : 'Драфт не прошёл проверку на сервере и не засчитан');
+    }
     toast('Не удалось сохранить результат — проверь связь и попробуй ещё раз');
   }
 }
@@ -368,9 +367,8 @@ async function submitChallenge() {
   const c = state.challenge;
   const err = challengeCheck(c.ch, challengeLineupObjects());
   if (err) return toast(err);
-  const sc = draftScore();
   try {
-    const res = await draftApi('challenge/submit', { week: c.week, picks: { ...state.lineup, CAPTAIN: state.captain, COACH: state.coach }, breakdown: sc });
+    const res = await draftApi('challenge/submit', { week: c.week, picks: { ...state.lineup, CAPTAIN: state.captain, COACH: state.coach } });
     c.best = res.best;
     saveChallengeLocal();
     renderTeam();
