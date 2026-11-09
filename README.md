@@ -53,4 +53,9 @@ cp .dev.vars.example .dev.vars   # BOT_TOKEN и др.
 npx wrangler d1 execute hut-builder --local --file worker/schema.sql
 npm run dev                      # http://127.0.0.1:8787
 npm run sync                     # свежие данные с hutdb (нужен Chrome/Chromium)
+npm test                         # тесты драфта и челленджа
 ```
+
+Проверить в обычном браузере, без Telegram: в `.dev.vars` добавить `TELEGRAM_API_BASE=http://127.0.0.1:8790`
+(и при желании `ADMIN_IDS=1001` — без лимита драфтов), запустить `npm run dev`, а во втором терминале
+`npm run dev:open` и открыть http://127.0.0.1:8790/dev — вход тестовым пользователем с подпиской.
