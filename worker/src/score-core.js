@@ -3,10 +3,8 @@
 //
 // Две шкалы, у каждой максимум 100:
 //   Рейтинг — средний OVR 20 игроков (с прибавкой OVR от сработавших комбинаций тренера в их звене).
-//   Сыгранность — у каждого игрока поровну из двух частей:
-//     · с капитаном: тот же клуб +3, та же страна +2, та же лига +1 (до 6);
-//     · с партнёрами по звену (LW–C–RW, пара защитников, пара вратарей): по тем же правилам, в среднем по партнёрам.
-//   Сыгранность игрока — 0…1 (на карточке 0–3 точки), состава — среднее × 100.
+//   Сыгранность — как в FIFA: связи игрока с партнёрами по звену и с капитаном (клуб +3, страна +2,
+//     лига +1 → 4+ сильная, 1–3 частичная, 0 нет) дают ему 0–10; сумма по 20 игрокам, 170+ = 100.
 // Итог для таблицы — сумма шкал (до 200).
 // В приложение этот файл попадает как обычный скрипт (scripts/build-site.js убирает import/export).
 
@@ -43,12 +41,27 @@ export function slotNeighbours(key) {
   return [line.slots[i - 1], line.slots[i + 1]].filter(Boolean).map(s => `${lineId}-${s}`);
 }
 
-// Сыгранность состава:
-// { total 0–100, players: { slot: { chem 0…1, stars 0–3, cap, line } }, links: [{ a, b, pts, kind }], capSlot, byLine }
+// Сыгранность — как в FIFA. Связь двух игроков: сильная (зелёная) = 2, частичная (жёлтая) = 1, нет (красная) = 0.
+// У каждого игрока — связи с партнёрами по звену и с капитаном (капитан — как «лояльность/менеджер» в FIFA).
+// Средняя сила связей → сыгранность игрока 0–10 (как в FIFA: почти всё жёлтое уже даёт 9 из 10).
+// Сыгранность команды — сумма по 20 игрокам, CHEM_FULL и больше = 100 (как в FIFA сумма 11 игроков упирается в 100).
+export const LINK_VALUE = { g: 2, y: 1, r: 0 };
+export const CHEM_FULL = 170; // в среднем 8,5 из 10 на игрока → 100
+export function playerChem(avg) {
+  if (avg >= 1.5) return 10;
+  if (avg >= 1) return 9;
+  if (avg >= 0.6) return 7;
+  if (avg >= 0.3) return 5;
+  if (avg > 0) return 3;
+  return 1;
+}
+const starsOf = pts => (pts >= 9 ? 3 : pts >= 6 ? 2 : pts >= 3 ? 1 : 0);
+
+// { total 0–100, sum, players: { slot: { pts 0–10, chem 0…1, stars 0–3, avg } }, links: [{ a, b, pts, kind }], capSlot, byLine }
 export function teamChem(lineup, captainId, byId) {
   const cap = captainId != null ? byId[captainId] : null;
   const capSlot = cap ? SLOT_KEYS.find(k => lineup[k] === captainId) || null : null;
-  const out = { total: 0, players: {}, links: [], capSlot, byLine: {} };
+  const out = { total: 0, sum: 0, players: {}, links: [], capSlot, byLine: {} };
   for (const line of LINES) {
     out.byLine[line.id] = 0;
     for (let i = 1; i < line.slots.length; i++) {
@@ -58,20 +71,19 @@ export function teamChem(lineup, captainId, byId) {
       out.links.push({ a, b, pts: l ? l.pts : null, kind: l ? l.kind : null });
     }
   }
-  let sum = 0;
   for (const k of SLOT_KEYS) {
     const p = byId[lineup[k]];
     if (!p) continue;
-    const capPart = k === capSlot ? 1 : cap ? captainLink(p, cap).pts / LINK_MAX : 0;
-    const mates = slotNeighbours(k).map(n => byId[lineup[n]]).filter(Boolean);
-    // Пока партнёров нет — часть «звено» не известна: считаем её нулём (растёт по мере сборки).
-    const linePart = mates.length ? mates.reduce((t, m) => t + linkOf(p, m).pts, 0) / (slotNeighbours(k).length * LINK_MAX) : 0;
-    const chem = (capPart + linePart) / 2;
-    out.players[k] = { chem, stars: Math.round(chem * 3), cap: capPart, line: linePart };
-    out.byLine[k.split('-')[0]] += chem;
-    sum += chem;
+    // Связи игрока: партнёры по звену (только уже стоящие) + капитан (у самого капитана — сильная).
+    const vals = slotNeighbours(k).map(n => byId[lineup[n]]).filter(Boolean).map(m => LINK_VALUE[linkOf(p, m).kind]);
+    if (cap) vals.push(k === capSlot ? 2 : LINK_VALUE[captainLink(p, cap).kind]);
+    const avg = vals.length ? vals.reduce((t, v) => t + v, 0) / vals.length : 0;
+    const pts = playerChem(avg);
+    out.players[k] = { pts, chem: pts / 10, stars: starsOf(pts), avg };
+    out.byLine[k.split('-')[0]] += pts;
+    out.sum += pts;
   }
-  out.total = Math.round((sum / SLOT_KEYS.length) * 100);
+  out.total = Math.min(100, Math.round((out.sum * 100) / CHEM_FULL));
   return out;
 }
 

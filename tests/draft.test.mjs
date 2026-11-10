@@ -100,7 +100,7 @@ test('расстановка: менять можно только игроко�
   assert.match(checkArrangement(pool, picks, { ...lu, 'F1-C': other[0] }), /players/);
 });
 
-test('сыгранность: капитан + партнёры по звену (клуб +3, страна +2, лига +1), шкала 0–100', () => {
+test('сыгранность как в FIFA: связи с партнёрами по звену и капитаном → 0–10 у игрока, сумма до 100', () => {
   const cap = { id: 1, team: 'Edmonton Oilers', nation: 'Canada', league: 'NHL', ovr: 90 };
   const l = linkOf({ team: 'EDMONTON OILERS ALUMNI', nation: 'Canada', league: 'NHLAA' }, cap);
   assert.deepEqual([l.club, l.nation, l.league, l.pts, l.kind], [true, true, false, 5, 'g']);
@@ -118,11 +118,15 @@ test('сыгранность: капитан + партнёры по звену 
   };
   const same = { team: 'Edmonton Oilers', nation: 'Canada', league: 'NHL' };
   assert.equal(make(() => same).total, 100);
-  assert.equal(make(i => ({ team: `X${i}`, nation: `Y${i}`, league: `Z${i}` })).total, 3); // только сам капитан: (1 + 0) / 2 / 20 // только капитан (половина его части)
-  // Звенья сыграны между собой, но не с капитаном: половина от максимума у всех, кроме звена капитана.
+  // Никто ни с кем не связан: капитан 9 (связь «сам с собой»), остальные по 1 → (9 + 19) / 170.
+  assert.equal(make(i => ({ team: `X${i}`, nation: `Y${i}`, league: `Z${i}` })).total, Math.round(28 * 100 / 170));
+  // Звенья сыграны между собой, но не с капитаном — как в FIFA, этого почти хватает на 100.
   const lines = make((i, k) => ({ team: `T-${k.split('-')[0]}`, nation: `N-${k.split('-')[0]}`, league: 'L' }));
-  assert.ok(lines.total > 40 && lines.total < 60, `звенья без капитана: ${lines.total}`);
   assert.equal(lines.links.filter(x => x.kind === 'g').length, lines.links.length - 1); // кроме связи с капитаном в F1
+  assert.ok(lines.total >= 90, `звенья без капитана: ${lines.total}`);
+  // Половина состава вообще без связей — заметно ниже.
+  const half = make((i, k) => (i < 10 ? same : { team: `X${i}`, nation: `Y${i}`, league: `Z${i}` }));
+  assert.ok(half.total > 40 && half.total < 80, `половина без связей: ${half.total}`);
   assert.equal(teamChem({}, null, {}).total, 0);
 });
 
