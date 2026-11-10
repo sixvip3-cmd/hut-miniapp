@@ -8,9 +8,9 @@
 // Варианты пиков сервер повторяет тем же генератором (draft-core.js) по пулу карточек из сборки,
 // очки считает сам (score-core.js).
 
-import { DRAFT_CAP, DRAFT_ORDER, DRAFT_RULES, DRAFTS_PER_DAY, verifyDraft } from './draft-core.js';
+import { DRAFT_CAP, DRAFT_RULES, DRAFTS_PER_DAY, captainSlotFor, draftOrder, verifyDraft } from './draft-core.js';
 import { CHALLENGE_PER_DAY, CHALLENGE_SLOTS, challengeCheck, challengeNow, challengeRules } from './challenge-core.js';
-import { draftSalAtPicks, scoreLineup } from './score-core.js';
+import { draftBonus, scoreLineup } from './score-core.js';
 import { gameData } from './game-data.js';
 import { draftRewardsOn, isAdmin, now } from './db.js';
 
@@ -91,9 +91,10 @@ async function finish(request, env, uid) {
   if (d.status === 'expired') return json({ error: mode === 'challenge' && d.week !== challengeNow().week ? 'week_over' : 'pool_changed', left: await leftToday(env, uid, mode) }, 409);
   if (d.status !== 'active') return json({ error: 'abandoned' }, 409);
 
-  const picks = {};
-  for (const k of DRAFT_ORDER) picks[k] = k === 'COACH' ? String(body.picks[k] ?? '') : Number(body.picks[k]);
   const data = await gameData(env);
+  // Капитан стоит в составе на своей позиции: его слот не разыгрывается, порядок пиков зависит от него.
+  const picks = { CAPTAIN: Number(body.picks.CAPTAIN) };
+  for (const k of draftOrder(data.draftPool, picks.CAPTAIN)) picks[k] = k === 'COACH' ? String(body.picks[k] ?? '') : Number(body.picks[k]);
   // Результат принимаем только проверенным: каждый выбор — из выпавших вариантов того же пула.
   if (data.draftPool.v !== d.pool_v) {
     await expire(env, d.id);
@@ -108,18 +109,19 @@ async function finish(request, env, uid) {
       return json({ error: 'week_over', left: await leftToday(env, uid, mode) }, 409);
     }
     ch = challengeOfWeek(d.week).ch;
-    rules = challengeRules(ch, data.byId, data.captains);
+    rules = challengeRules(ch, data.byId);
   }
-  // Бонус Salary на каждом пике (от него зависит лимит зарплаты и варианты) сервер считает сам.
-  const err = verifyDraft(data.draftPool, d.seed, picks, body.rerolls || {}, draftSalAtPicks(picks, data), rules);
+  const err = verifyDraft(data.draftPool, d.seed, picks, body.rerolls || {}, {}, rules, draftBonus(data));
   if (err) return json({ error: 'invalid', reason: err }, 422);
+  // Состав: 19 разыгранных слотов + капитан в своём слоте.
+  const capSlot = captainSlotFor(data.byId[picks.CAPTAIN]?.pos);
+  const lineup = Object.fromEntries(CHALLENGE_SLOTS.map(k => [k, k === capSlot ? picks.CAPTAIN : picks[k]]));
   if (ch) {
-    const chErr = challengeCheck(ch, Object.fromEntries(CHALLENGE_SLOTS.map(k => [k, data.byId[picks[k]]])));
+    const chErr = challengeCheck(ch, Object.fromEntries(CHALLENGE_SLOTS.map(k => [k, data.byId[lineup[k]]])));
     if (chErr) return json({ error: 'invalid', reason: chErr }, 422);
   }
 
   // Очки сервер считает сам — тем же кодом, что приложение (score-core.js).
-  const lineup = Object.fromEntries(DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH').map(k => [k, picks[k]]));
   const sc = scoreLineup(lineup, picks.CAPTAIN, picks.COACH, data);
   const score = sc.total;
   const breakdown = { base: sc.base, avgOvr: sc.avgOvr, chem: sc.chem, squad: sc.squad, captain: sc.captain, coach: sc.coach,

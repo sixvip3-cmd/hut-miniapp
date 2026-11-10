@@ -3,8 +3,9 @@
 // откладывается (state.savedLineup) и возвращается при выходе.
 //   Драфт: капитан → 20 игроков → тренер; на пик 5 вариантов (draft-core.js, общий с сервером),
 //          среди них всегда есть хотя бы один «с бонусом». Лимита зарплаты нет, 3 перевыброса.
-//   Химия — как в FC (score-core.js): у игрока 0–3 по числу игроков его клуба и страны в составе;
-//   линии между соседями показывают, откуда она: зелёная — один клуб, жёлтая — одна страна, красная — ничего.
+//   Капитан — первый пик и сразу встаёт в состав на свою позицию; пиков 21 (капитан, 19 игроков, тренер).
+//   Сыгранность — с капитаном (score-core.js): клуб +3, страна +2, лига +1 у каждого игрока, шкала 0–100.
+//   Во время сборки видны шкалы рейтинга состава и сыгранности.
 //   Варианты — лентой; удержание карточки показывает её связи в составе до выбора.
 //   Челлендж: тот же драфт (state.draft.mode = 'challenge'), но варианты только из карточек под условие
 //          недели и лимит зарплаты недели (challenge-core.js → challengeRules). В зачёт — лучшая попытка недели.
@@ -45,18 +46,25 @@ const loadDraftLocal = mode => store.get(keyOf(mode));
 const clearDraftLocal = mode => store.del(keyOf(mode));
 const isChal = () => state.draft?.mode === 'challenge';
 // Правила генератора вариантов: обычный драфт или челлендж недели (только подходящие карточки, свой лимит).
-const draftRules = () => (isChal() ? challengeRules(state.draft.ch, state.byId, state.captains) : DRAFT_RULES);
+const draftRules = () => (isChal() ? challengeRules(state.draft.ch, state.byId) : DRAFT_RULES);
+// Порядок пиков: после капитана его слот пропускается (draft-core.js → draftOrder).
+const curOrder = () => draftOrder(state.draftPool, state.draft?.picks.CAPTAIN);
+const curKey = () => curOrder()[state.draft.pick];
+const capSlotOf = id => captainSlotFor(state.byId[id]?.pos);
+// Состав из пиков: 19 разыгранных слотов + капитан в своём слоте.
+function lineupFromPicks(picks) {
+  const lu = Object.fromEntries(Object.entries(picks).filter(([k]) => k !== 'CAPTAIN' && k !== 'COACH'));
+  if (picks.CAPTAIN != null) lu[capSlotOf(picks.CAPTAIN)] = picks.CAPTAIN;
+  return lu;
+}
 
 // ---------- Очки (драфт и челлендж) ----------
 // Считаются общим кодом с сервером (score-core.js): что видит игрок, то и засчитает сервер.
 const draftScore = () => scoreLineup(state.lineup, state.captain, state.coach,
   { byId: state.byId, combos: state.combos, captains: state.captains, coaches: state.coaches });
 
-const lineupSalary = () => Math.round(DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH')
-  .reduce((t, k) => t + (state.byId[state.lineup[k]]?.salary || 0), 0) * 10) / 10;
-// Бонус Salary состава сейчас (звенья + капитан + тренер) — в драфте расширяет лимит, как в игре.
-const draftSalBonus = () => draftScore().salBonus; // так же считает сервер (score-core.js)
-const draftCap = () => (isChal() ? state.draft.ch.cap : DRAFT_CAP + (state.draft?.salAt?.[state.draft.pick] ?? draftSalBonus()));
+const lineupSalary = () => Math.round(DRAFT_SLOTS.reduce((t, k) => t + (state.byId[state.lineup[k]]?.salary || 0), 0) * 10) / 10;
+const chemOf = lineup => captainChem(lineup, state.captain, state.byId);
 
 // ---------- Вход и выход: драфт и челлендж идут на экране состава ----------
 function enterBuildMode(lineup, captain, coach, mode) {
@@ -101,17 +109,16 @@ async function startDraft(fresh = false, mode = 'draft') {
     if (pool.v !== res.poolV) throw new Error('pool');
     const local = loadDraftLocal(mode);
     state.draft = local?.id === res.id ? local
-      : { id: res.id, mode, ch: res.ch || null, week: res.week || null, seed: res.seed, poolV: res.poolV, pick: 0, picks: {}, rerolls: {}, salAt: {}, rerollsLeft: DRAFT_REROLLS };
+      : { id: res.id, mode, ch: res.ch || null, week: res.week || null, seed: res.seed, poolV: res.poolV, pick: 0, picks: {}, rerolls: {}, rerollsLeft: DRAFT_REROLLS };
     state.draft.mode = mode;
     if (res.ch) state.draft.ch = res.ch;
-    state.draft.salAt ||= {};
     state.draftResult = null; // прошлый результат уже показан — при выходе вернёмся на главную вкладки
     saveDraftLocal();
     if (res.expired) toast(mode === 'challenge' ? 'Прошлая попытка челленджа устарела — не засчитана, попытка не потрачена' : 'База карточек обновилась — прошлый драфт не засчитан, попытка не потрачена');
     const p = state.draft.picks;
-    enterBuildMode(Object.fromEntries(Object.entries(p).filter(([k]) => k !== 'CAPTAIN' && k !== 'COACH')), p.CAPTAIN, p.COACH, mode);
+    enterBuildMode(lineupFromPicks(p), p.CAPTAIN, p.COACH, mode);
     haptic('medium');
-    if (state.draft.pick >= DRAFT_ORDER.length) return finishDraft();
+    if (state.draft.pick >= DRAFT_PICKS) return finishDraft();
     setTimeout(openDraftPicker, 300);
   } catch (err) {
     const limit = mode === 'challenge' ? 'На сегодня попытки челленджа закончились — приходи завтра' : 'На сегодня драфты закончились — приходи завтра';
@@ -123,86 +130,81 @@ function decorateDraftTeam() {
   document.querySelectorAll('#lineup .card.now, #lineup .card.ghost, #staff .staff-tile.now, #staff .staff-tile.ghost')
     .forEach(e => e.classList.remove('now', 'ghost'));
   const d = state.draft;
-  const key = DRAFT_ORDER[d.pick];
+  const key = d.pick < DRAFT_PICKS ? curKey() : null;
   const sc = draftScore();
-  const spent = lineupSalary();
-  const money = `💰 <b>$${spent.toFixed(1)}M</b>`;
+  const ovr = sc.players ? Math.round(sc.avgOvr) : 0;
+  const ovrPct = ovr ? Math.min(100, Math.max(4, ((ovr - 60) / 39) * 100)) : 0;
   $('#draft-bar').hidden = false;
   $('#draft-bar').innerHTML = `
     <div class="dbar"><button class="dx" data-draft="leave" aria-label="Выйти">✕</button>
-      <div class="dt"><b>Пик ${Math.min(d.pick + 1, DRAFT_ORDER.length)} / ${DRAFT_ORDER.length}</b><small>${isChal() ? `${esc(d.ch.title)} · ` : ''}${key ? esc(DRAFT_LABEL(key)) : 'Готово'}</small></div>
+      <div class="dt"><b>Пик ${Math.min(d.pick + 1, DRAFT_PICKS)} / ${DRAFT_PICKS}</b><small>${isChal() ? `${esc(d.ch.title)} · ` : ''}${key ? esc(DRAFT_LABEL(key)) : 'Готово'}</small></div>
       <div class="dsc"><b>${sc.total}</b><small>очков</small></div></div>
     ${isChal() ? `<div class="rules">${d.ch.rules.map(r => `<span>${esc(r)}</span>`).join('')}</div>` : ''}
-    <div class="dprog"><i style="width:${(d.pick / DRAFT_ORDER.length) * 100}%"></i></div>
-    <div class="dmeta"><span>${money}</span><span>⚗️ <b>${sc.squad.total}</b>/${sc.squad.max}</span>
-      <span>🔄 <b>${d.rerollsLeft}</b></span>
+    <div class="dmeters">
+      <div class="dm"><span>Рейтинг</span><b>${ovr || '—'}</b><div class="dmbar ovr"><i style="width:${ovrPct}%"></i></div></div>
+      <div class="dm"><span>Сыгранность</span><b>${sc.squad.total}<small>/100</small></b><div class="dmbar chem"><i style="width:${sc.squad.total}%"></i></div></div>
+    </div>
+    <div class="dprog"><i style="width:${(d.pick / DRAFT_PICKS) * 100}%"></i></div>
+    <div class="dmeta"><span>💰 <b>$${lineupSalary().toFixed(1)}M</b></span><span>🔄 <b>${d.rerollsLeft}</b></span>
       ${key ? '<button class="dnext" data-draft="open">Выбрать ›</button>' : ''}</div>`;
   const mark = (k, cls) => {
     if (k === 'CAPTAIN' || k === 'COACH') document.querySelector(`#staff [data-staff="${k === 'CAPTAIN' ? 'captain' : 'coach'}"]`)?.classList.add(cls);
     else if (k) document.querySelector(`#lineup [data-slot="${k}"]`)?.classList.add(cls);
   };
-  mark(key, state.draftPreview ? 'ghost' : 'now');
+  const pv = state.draftPreview;
+  mark(pv ? (pv.key === 'CAPTAIN' ? capSlotOf(state.captain) : pv.key) : key, pv ? 'ghost' : 'now');
+  // Плитка капитана: он уже в составе — показываем, где стоит (а не бонус HUT).
+  const capP = state.byId[state.captain];
+  const capTile = document.querySelector('#staff [data-staff="captain"]');
+  if (capTile && capP) {
+    const slot = capSlotOf(capP.id);
+    capTile.innerHTML = `<span class="card" style="${cardStyle(capP)}">${cardHtml(capP)}</span>
+      <span class="staff-info"><span class="staff-role">Капитан</span><span class="staff-name">${esc(capP.name)}</span>
+      <span class="staff-sub met">в составе · ${esc(DRAFT_SHORT(slot))}</span></span>`;
+  }
   document.querySelectorAll('#staff .staff-tile').forEach(t => {
     const n = t.querySelector('.staff-name');
     if (n && n.textContent.trim() === 'Выбрать') n.textContent = t.dataset.staff === 'coach' ? 'Последний пик' : 'Первый пик';
   });
-  drawDraftLinks();
+  drawCaptainChem();
 }
 
-// Связи соседей поверх состава: зелёная — один клуб, жёлтая — одна страна, красная — нет связи.
-function drawDraftLinks() {
-  const L = lineupLinks(state.lineup, state.byId);
-  const C = squadChem(state.lineup, state.byId);
+// Сыгранность с капитаном на карточках: что совпадает (клуб · страна · лига) и сколько очков; по линиям — сумма.
+function drawCaptainChem() {
+  const C = chemOf(state.lineup);
+  const capSlot = C.capSlot;
   for (const [k, v] of Object.entries(C.bySlot)) {
     const card = document.querySelector(`#lineup [data-slot="${k}"]`);
     if (!card) continue;
-    const dots = document.createElement('span');
-    dots.className = `dchem c${v.chem}`;
-    dots.title = `Химия ${v.chem}/3 · клуб: ${v.clubN} в составе (+${v.club}) · страна: ${v.nationN} (+${v.nation})`;
-    dots.innerHTML = '<i></i><i></i><i></i>';
-    card.append(dots);
+    const tag = document.createElement('span');
+    tag.className = `dcap p${v.pts}`;
+    tag.title = `Сыгранность с капитаном: ${[v.club && 'клуб +3', v.nation && 'страна +2', v.league && 'лига +1'].filter(Boolean).join(', ') || 'ничего общего'}`;
+    tag.innerHTML = `<i class="${v.club ? 'on' : ''}">К</i><i class="${v.nation ? 'on' : ''}">С</i><i class="${v.league ? 'on' : ''}">Л</i>`;
+    card.append(tag);
   }
-  const pv = state.draftPreview?.key;
-  const title = { g: 'Один клуб · +3', y: 'Одна страна · +1', r: 'Нет связи' };
+  if (capSlot) document.querySelector(`#lineup [data-slot="${capSlot}"]`)?.classList.add('dcapcard');
   for (const line of LINES) {
     const el = document.querySelector(`#lineup .line[data-line="${line.id}"]`);
     if (!el) continue;
-    const slots = el.querySelector('.slots');
-    slots.classList.add('linked');
-    L.links.filter(l => l.line === line.id).forEach((l, i) => {
-      const bar = document.createElement('span');
-      bar.className = `dlink n${line.slots.length} i${i}${l.kind ? ` ${l.kind}` : ''}${pv && l.kind && (l.a === pv || l.b === pv) ? ' pv' : ''}`;
-      bar.title = title[l.kind] || 'Связь появится, когда оба слота заполнены';
-      slots.append(bar);
-    });
+    const max = line.slots.filter(s => `${line.id}-${s}` !== capSlot).length * CHEM_PER_PLAYER;
     const chips = el.querySelector('.line-head .chips');
-    if (chips) chips.innerHTML = `<span class="lchem${C.byLine[line.id] ? ' on' : ''}">химия ${C.byLine[line.id]}/${line.slots.length * 3}</span>`;
+    if (chips) chips.innerHTML = `<span class="lchem${C.byLine[line.id] ? ' on' : ''}">сыгр. ${C.byLine[line.id]}/${max}</span>`;
   }
 }
 
-// Верх экрана в драфте: средний OVR карточек, зарплата (лимит — только в челлендже), химия связей вместо AP.
+// Верх экрана в драфте: средний OVR карточек, зарплата (без лимита), сыгранность с капитаном вместо AP.
 function decorateDraftSummary() {
   const sc = draftScore();
-  const ovr = Math.round(sc.avgOvr) || 0;
+  const ovr = sc.players ? Math.round(sc.avgOvr) : 0;
   $('#sum-ovr').textContent = ovr || '—';
   $('#ovr-arc').style.strokeDashoffset = RING * (1 - (ovr ? Math.min(1, Math.max(0.04, (ovr - 60) / 39)) : 0));
-  const spent = lineupSalary();
-  if (isChal() && state.draft.ch.cap) {
-    const cap = state.draft.ch.cap;
-    const over = spent > cap;
-    $('#sum-cap').textContent = `/ $${cap}M`;
-    $('#sum-salary').classList.toggle('over', over);
-    $('#bar-salary').classList.toggle('over', over);
-    $('#bar-salary i').style.width = `${Math.min(100, (spent / cap) * 100)}%`;
-  } else {
-    $('#sum-cap').textContent = '· без лимита';
-    $('#sum-salary').classList.remove('over');
-    $('#bar-salary').style.visibility = 'hidden';
-  }
-  $('#ap-label').textContent = 'Химия';
+  $('#sum-cap').textContent = '· без лимита';
+  $('#sum-salary').classList.remove('over');
+  $('#bar-salary').style.visibility = 'hidden';
+  $('#ap-label').textContent = 'Сыгранность';
   $('#sum-ap').textContent = sc.squad.total;
-  $('#ap-max').textContent = `/ ${sc.squad.max}`;
-  $('#bar-ap i').style.width = `${Math.min(100, (sc.squad.total / sc.squad.max) * 100)}%`;
+  $('#ap-max').textContent = '/ 100';
+  $('#bar-ap i').style.width = `${sc.squad.total}%`;
 }
 
 $('#draft-bar').addEventListener('click', e => {
@@ -215,56 +217,40 @@ $('#draft-bar').addEventListener('click', e => {
 });
 
 function draftSlotTap(key) {
-  const now = DRAFT_ORDER[state.draft.pick];
+  const now = state.draft.pick < DRAFT_PICKS ? curKey() : null;
   if (key === now) return openDraftPicker();
   toast(now ? `Сейчас пик: ${DRAFT_SHORT(now)}` : 'Пики закончились');
 }
 
-// Даёт ли вариант бонус: игрок — прибавляет химии составу либо +1 к капитану; тренер — хоть одна комбинация.
-function draftHasBonus(key, id) {
-  if (key === 'CAPTAIN') return true;
-  if (key === 'COACH') { const c = coachById(id); return !!c && coachStatus(c, state.lineup, state.byId).activeCount > 0; }
-  const p = state.byId[id];
-  if (!p) return false;
-  const cap = state.byId[state.captain];
-  const rule = cap && captainRuleFor(cap, state.captains);
-  if (rule && captainMatch(p, rule) && !captainStatus(cap, lineupPlayers(), state.captains).met) return true;
-  return chemGain(key, id) > 0;
-}
+// «Вариант с бонусом» — общий код с сервером (score-core.js → draftBonus): сервер принимает только эту пятёрку.
+const draftHasBonus = (key, id) => draftBonus({ byId: state.byId, coaches: state.coaches })(key, id, state.draft.picks);
 
-// На сколько вырастет химия состава, если поставить карточку id в слот key.
+// На сколько вырастет сыгранность (0–100), если поставить карточку id в слот key.
 function chemGain(key, id) {
-  const before = squadChem(state.lineup, state.byId).total;
-  return squadChem({ ...state.lineup, [key]: id }, state.byId).total - before;
+  return chemOf({ ...state.lineup, [key]: id }).total - chemOf(state.lineup).total;
 }
 
 function dealDraft() {
   const d = state.draft;
-  const key = DRAFT_ORDER[d.pick];
-  if (d.salAt[d.pick] == null) { d.salAt[d.pick] = draftSalBonus(); saveDraftLocal(); }
-  const { opts, extra } = draftDeal(state.draftPool, d.seed, d.pick, d.rerolls[d.pick] || 0, d.picks, d.salAt[d.pick], draftRules());
-  const options = opts.slice();
-  // В каждой пятёрке хотя бы один вариант с бонусом — берём первый подходящий из запасного списка.
-  if (key !== 'CAPTAIN' && options.length && !options.some(id => draftHasBonus(key, id))) {
-    const bonus = extra.find(id => draftHasBonus(key, id));
-    if (bonus != null) options[(d.seed + d.pick) % options.length] = bonus;
-  }
-  d.options = options;
+  const key = curKey();
+  const dealt = draftDeal(state.draftPool, d.seed, d.pick, d.rerolls[d.pick] || 0, d.picks, 0, draftRules());
+  // В каждой пятёрке хотя бы один вариант с бонусом (draft-core.js → finalOptions).
+  d.options = finalOptions(dealt, key, d.seed, d.pick, id => draftHasBonus(key, id));
 }
 
 function openDraftPicker() {
   const d = state.draft;
-  const key = DRAFT_ORDER[d.pick];
+  const key = d.pick < DRAFT_PICKS ? curKey() : null;
   if (!key || !state.draftPool) return;
   dealDraft();
   openPicker(key);
 }
 
-// Меню выбора в драфте: 5 карточек лентой. У каждой — связи с соседями по звену и бонус капитана.
+// Меню выбора в драфте: 5 карточек в ряд. У игрока — совпадения с капитаном и как изменятся сыгранность и рейтинг.
 // Нажатие — выбор, удержание — превью связей в составе (startDraftPreview).
 function renderDraftOptions() {
   const d = state.draft;
-  const key = DRAFT_ORDER[d.pick];
+  const key = curKey();
   $('#picker').classList.add('dpick');
   $('#picker-title').textContent = `Пик ${d.pick + 1} · ${DRAFT_SHORT(key)}`;
   ['#picker-remove', '#picker-accent', '#picker-search'].forEach(s => { $(s).hidden = true; });
@@ -282,28 +268,25 @@ function renderDraftOptions() {
         <span class="dchips">${chip(st.activeCount ? 'g' : 'z', `${st.activeCount}/${st.combos.length} комб.`)}${t.OVR ? chip('o', `+${t.OVR} OVR`) : ''}${t.SAL ? chip('s', `+$${t.SAL}M`) : ''}${t.AP ? chip('a', `+${t.AP} AP`) : ''}</span></button>`;
     }).join('');
   } else if (key === 'CAPTAIN') {
-    cards = d.options.map(id => state.byId[id]).filter(Boolean).map(p => {
-      const r = captainRuleFor(p, state.captains);
-      return `<button class="dopt" type="button" data-id="${p.id}">${img(p)}<b class="dn">${esc(p.name)}</b>
+    cards = d.options.map(id => state.byId[id]).filter(Boolean).map(p => `<button class="dopt" type="button" data-id="${p.id}">${img(p)}<b class="dn">${esc(p.name)}</b>
         <small class="dt2">${flag(p.nation)} ${esc(p.team)}</small>
-        <span class="dchips">${r ? chip('cap', `👑 ${esc(captainBonusText(r).replace(/<[^>]+>/g, ''))} · нужно ${r.needed}`) : ''}</span></button>`;
-    }).join('');
+        <span class="dchips">${chip('cap', `👑 встанет: ${esc(DRAFT_SHORT(captainSlotFor(p.pos)))}`)}${chip('z', esc(p.league || ''))}</span></button>`).join('');
   } else {
     const cap = state.byId[state.captain];
-    const rule = cap && captainRuleFor(cap, state.captains);
-    const have = rule ? captainStatus(cap, lineupPlayers(), state.captains).count : 0;
+    const avgNow = draftScore().avgOvr;
     cards = d.options.map(id => state.byId[id]).filter(Boolean).map(p => {
       const gain = chemGain(key, p.id);
-      const own = squadChem({ ...state.lineup, [key]: p.id }, state.byId).bySlot[key];
-      const links = chip(gain > 0 ? 'g' : 'z', `химия +${gain}`)
-        + chip(own.club ? 'g' : 'z', `клуб ×${own.clubN}`) + chip(own.nation ? 'y' : 'z', `страна ×${own.nationN}`);
-      const capTxt = rule && captainMatch(p, rule) && have < rule.needed ? chip('cap', `👑 +1 к капитану · ${have + 1}/${rule.needed}`) : '';
+      const l = captainLink(p, cap);
+      const after = scoreLineup({ ...state.lineup, [key]: p.id }, state.captain, state.coach, { byId: state.byId, combos: state.combos, captains: state.captains, coaches: state.coaches }).avgOvr;
+      const links = chip(gain > 0 ? 'g' : 'z', `сыгр. +${gain}`)
+        + (l.pts ? `${l.club ? chip('g', 'клуб') : ''}${l.nation ? chip('y', 'страна') : ''}${l.league ? chip('b', 'лига') : ''}` : chip('r', 'не с капитаном'))
+        + chip(after >= avgNow ? 'o' : 'z', `рейт. ${Math.round(after)}`);
       return `<button class="dopt" type="button" data-id="${p.id}">${img(p)}<b class="dn">${esc(p.name)}</b>
-        <small class="dt2">${flag(p.nation)} ${esc(p.team)} · $${p.salary}M</small><span class="dchips">${links}${capTxt}</span></button>`;
+        <small class="dt2">${flag(p.nation)} ${esc(p.team)} · $${p.salary}M</small><span class="dchips">${links}</span></button>`;
     }).join('');
   }
-  const money = isChal() && d.ch.cap && key !== 'CAPTAIN' && key !== 'COACH' ? ` · осталось <b>$${(draftCap() - lineupSalary()).toFixed(1)}M</b>` : '';
-  $('#picker-list').innerHTML = `<div class="dpick-head"><span>Выбери <b>1 из 5</b>${money}</span><span>зажми — покажем связи</span></div>
+  const hint = key === 'CAPTAIN' ? 'капитан сразу встаёт в состав' : 'зажми — покажем в составе';
+  $('#picker-list').innerHTML = `<div class="dpick-head"><span>Выбери <b>1 из 5</b></span><span>${hint}</span></div>
     <div class="dopts">${cards || '<p class="hint">Нет подходящих карточек</p>'}</div>
     ${d.rerollsLeft > 0 ? `<button class="dskip" data-reroll>🔄 Перевыбросить варианты · осталось ${d.rerollsLeft}</button>` : ''}`;
 }
@@ -312,12 +295,12 @@ function renderDraftOptions() {
 let dHold = null;
 function startDraftPreview(opt) {
   const d = state.draft;
-  const key = DRAFT_ORDER[d.pick];
+  const key = curKey();
   const id = key === 'COACH' ? opt.dataset.coach : Number(opt.dataset.id);
   const before = draftScore();
   state.draftPreview = { key, saved: { lineup: state.lineup, captain: state.captain, coach: state.coach } };
   state.lineup = { ...state.lineup };
-  if (key === 'CAPTAIN') state.captain = id;
+  if (key === 'CAPTAIN') { state.captain = id; state.lineup[capSlotOf(id)] = id; }
   else if (key === 'COACH') state.coach = id;
   else state.lineup[key] = id;
   const after = draftScore();
@@ -326,13 +309,13 @@ function startDraftPreview(opt) {
   $('#picker').classList.add('peek');
   const head = $('#picker-list .dpick-head');
   if (head) {
-    head.innerHTML = `<span><b>${esc(name || '')}</b> · химия ${before.squad.total} → <b class="${diff > 0 ? 'up' : ''}">${after.squad.total}</b>${diff > 0 ? ` (+${diff})` : ''}
-      · очки ${before.total} → <b>${after.total}</b></span><span>отпусти — вернёмся</span>`;
+    head.innerHTML = `<span><b>${esc(name || '')}</b> · сыгранность ${before.squad.total} → <b class="${diff > 0 ? 'up' : ''}">${after.squad.total}</b>
+      · рейтинг ${Math.round(before.avgOvr) || '—'} → <b>${Math.round(after.avgOvr)}</b> · очки ${before.total} → <b>${after.total}</b></span><span>отпусти — вернёмся</span>`;
   }
   renderTeam();
-  const target = key === 'CAPTAIN' || key === 'COACH'
-    ? document.querySelector(`#staff [data-staff="${key === 'CAPTAIN' ? 'captain' : 'coach'}"]`)
-    : document.querySelector(`#lineup [data-slot="${key}"]`);
+  const target = key === 'COACH'
+    ? document.querySelector('#staff [data-staff="coach"]')
+    : document.querySelector(`#lineup [data-slot="${key === 'CAPTAIN' ? capSlotOf(id) : key}"]`);
   target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   haptic('light');
 }
@@ -394,13 +377,13 @@ function draftChoose(e) {
     renderTeam();
     return;
   }
-  const key = DRAFT_ORDER[d.pick];
+  const key = curKey();
   const row = e.target.closest(key === 'COACH' ? '[data-coach]' : '[data-id]');
   if (!row) return;
   const id = key === 'COACH' ? row.dataset.coach : Number(row.dataset.id);
   if (!d.options.includes(id)) return;
   d.picks[key] = id;
-  if (key === 'CAPTAIN') state.captain = id;
+  if (key === 'CAPTAIN') { state.captain = id; state.lineup[capSlotOf(id)] = id; } // капитан сразу в составе
   else if (key === 'COACH') state.coach = id;
   else state.lineup[key] = id;
   d.pick++;
@@ -408,7 +391,7 @@ function draftChoose(e) {
   closeSheets();
   renderTeam();
   haptic('medium');
-  if (d.pick >= DRAFT_ORDER.length) return finishDraft();
+  if (d.pick >= DRAFT_PICKS) return finishDraft();
   setTimeout(openDraftPicker, 380);
 }
 
@@ -419,7 +402,7 @@ async function finishDraft() {
     const res = await draftApi('draft/finish', { id: d.id, picks: d.picks, rerolls: d.rerolls });
     // Показываем очки, которые засчитал сервер (он пересчитывает их сам).
     const b = res.breakdown || {};
-    state.draftResult = { ...sc, ...(res.already ? {} : { base: b.base, avgOvr: b.avgOvr, chem: b.chem, captain: b.captain, coach: b.coach }),
+    state.draftResult = { ...sc, ...(res.already ? {} : { base: b.base, avgOvr: b.avgOvr, chem: b.chem, coach: b.coach }),
       total: res.score, place: res.place, best: res.best, left: res.left, mode: d.mode, ch: d.ch, picks: { ...d.picks } };
     clearDraftLocal(d.mode);
     exitBuildMode();
@@ -442,8 +425,9 @@ async function finishDraft() {
 }
 
 function draftCardsGrid(picks) {
-  return `<div class="dgrid">${DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH').map(k => {
-    const p = state.byId[picks[k]];
+  const lu = lineupFromPicks(picks);
+  return `<div class="dgrid">${DRAFT_SLOTS.map(k => {
+    const p = state.byId[lu[k]];
     return `<div class="dmini" style="${p ? cardStyle(p) : ''}">${p ? cardImg(p, true) : ''}</div>`;
   }).join('')}</div>`;
 }
@@ -462,13 +446,12 @@ function renderDraftResult() {
         : `<b>#${r.place}</b> за сегодня<br><span class="muted">драфтов осталось: ${r.left > 50 ? '∞' : r.left}</span>`}</div></section>
     <section class="glass staffres">
       <div class="sr"><span class="badge" style="${cap ? cardStyle(cap) : ''}">${cap ? cardImg(cap, true) : ''}</span><div><small>КАПИТАН</small><b>${esc(cap?.name || '—')}</b>
-        <span class="${r.capInfo?.met ? 'ok' : 'muted'}">${r.capInfo ? `${Math.min(r.capInfo.count, r.capInfo.needed)}/${r.capInfo.needed} игроков` : ''}${r.captain ? ` · +${r.captain}` : ''}</span></div></div>
+        <span class="ok">${cap ? `в составе · ${esc(DRAFT_SHORT(captainSlotFor(cap.pos)))}` : ''}</span></div></div>
       <div class="sr"><span class="badge coach-thumb">${coach ? coachImg(coach, true) : ''}</span><div><small>ТРЕНЕР</small><b>${esc(coach?.name || '—')}</b>
         <span class="${r.coachInfo?.active ? 'ok' : 'muted'}">${r.coachInfo ? `${r.coachInfo.active}/${r.coachInfo.of} комбинаций` : ''}</span></div></div></section>
     <section class="glass brk"><div class="dk">ИЗ ЧЕГО СЛОЖИЛОСЬ</div>
       <div class="br"><span>Средний OVR карточек</span><em>${r.avgOvr}</em><b>${r.base}</b></div>
-      <div class="br"><span>Химия</span><em class="chipline">${r.squad ? `<i class="lk g">${r.squad.full} с 3/3</i> ${r.squad.total}/${r.squad.max}` : '—'}</em><b>+${r.chem}</b></div>
-      <div class="br"><span>Капитан</span><em>${r.captain ? `+${r.captain}` : 'бонус не собран'}</em><b>+${r.captain}</b></div>
+      <div class="br"><span>Сыгранность с капитаном</span><em class="chipline">${r.squad ? `<i class="lk g">${r.squad.full} полностью</i> ${r.squad.total}/100` : '—'}</em><b>+${r.chem}</b></div>
       <div class="br"><span>Тренер</span><em class="chipline">${chips(r.coachInfo?.total) || '—'}</em><b>+${r.coach}</b></div>
       <div class="br tot"><span>Итого</span><em></em><b>${r.total}</b></div></section>
     ${draftCardsGrid(r.picks)}
@@ -505,22 +488,22 @@ async function renderDraftHome() {
     <section class="ddraft glass"><div class="dk">ДРАФТ</div>
       <h2>Собери команду из случайных карточек</h2>
       <p class="dsub">Как обычная сборка состава, но на каждый пик — 5 случайных вариантов</p>
-      <div class="steps"><div class="st"><span class="ic">👑</span><b>Капитан</b><small>пик 1</small></div><i class="ar">→</i>
-        <div class="st"><span class="ic">🏒</span><b>20 игроков</b><small>пики 2–21</small></div><i class="ar">→</i>
-        <div class="st"><span class="ic">📋</span><b>Тренер</b><small>пик 22</small></div></div>
-      <div class="rules"><span>🃏 все ${state.draftPool ? state.draftPool.players.length.toLocaleString('ru-RU') : '8 000+'} карточек базы</span><span>🎴 1 из 5 на пик</span><span>✨ всегда есть вариант с бонусом</span><span>🔄 ${DRAFT_REROLLS} перевыброса</span><span>💸 без лимита зарплаты</span><span>⚗️ химия: клуб и страна, до 3 у игрока</span></div>
-      ${b.active ? `<div class="resume"><div><b>Незаконченный драфт</b><small>${resumePick ? `пик ${resumePick + 1} из ${DRAFT_ORDER.length}` : 'можно продолжить'}</small></div>
+      <div class="steps"><div class="st"><span class="ic">👑</span><b>Капитан</b><small>пик 1 · сразу в состав</small></div><i class="ar">→</i>
+        <div class="st"><span class="ic">🏒</span><b>19 игроков</b><small>пики 2–20</small></div><i class="ar">→</i>
+        <div class="st"><span class="ic">📋</span><b>Тренер</b><small>пик 21</small></div></div>
+      <div class="rules"><span>🃏 все ${state.draftPool ? state.draftPool.players.length.toLocaleString('ru-RU') : '8 000+'} карточек базы</span><span>🎴 1 из 5 на пик</span><span>✨ всегда есть вариант с бонусом</span><span>🔄 ${DRAFT_REROLLS} перевыброса</span><span>💸 без лимита зарплаты</span><span>⚗️ сыгранность с капитаном: клуб +3 · страна +2 · лига +1 (до 100)</span></div>
+      ${b.active ? `<div class="resume"><div><b>Незаконченный драфт</b><small>${resumePick ? `пик ${resumePick + 1} из ${DRAFT_PICKS}` : 'можно продолжить'}</small></div>
         <button class="ghostbtn sm" data-draft-act="resume">Продолжить</button></div>` : ''}
       <div class="meta3"><div><b>${b.today.best || '—'}</b><small>лучший сегодня</small></div><div><b>${b.me && state.draftPeriod === 'day' ? `#${b.me.place}` : '—'}</b><small>место за день</small></div>
         <div><b>${left}</b><small>драфтов осталось</small></div></div>
       <button class="btn-primary" data-draft-act="new" ${b.left <= 0 ? 'disabled' : ''}>${b.left <= 0 ? 'Драфты на сегодня закончились' : b.active ? 'Начать новый драфт' : 'Начать драфт'}</button>
-      <p class="hint dscore-hint">Очки: 4 × средний OVR карточек + 2 × химия (до 60) + бонусы капитана и тренера.${b.rewards ? '<br>🏆 №1 недели — месяц доступа, №1 месяца — год.' : ''}</p></section>
+      <p class="hint dscore-hint">Очки: 4 × средний OVR карточек + сыгранность (до 100) + бонус тренера.${b.rewards ? '<br>🏆 №1 недели — месяц доступа, №1 месяца — год.' : ''}</p></section>
 
     <section class="dchal glass"><div class="dk">ЧЕЛЛЕНДЖ НЕДЕЛИ <span class="dk-r">${untilText(c.endsAt)}</span></div>
       <h2>${esc(c.ch.title)}</h2>
       <p class="dsub">Драфт по условию недели: на каждый пик 1 из 5 карточек, подходящих под условие</p>
-      <div class="rules">${c.ch.rules.map(r => `<span>${esc(r)}</span>`).join('')}<span>🎴 1 из 5 на пик</span><span>⚗️ химия клуб/страна</span></div>
-      ${c.active ? `<div class="resume"><div><b>Незаконченная попытка</b><small>${chResume ? `пик ${chResume + 1} из ${DRAFT_ORDER.length}` : 'можно продолжить'}</small></div>
+      <div class="rules">${c.ch.rules.map(r => `<span>${esc(r)}</span>`).join('')}<span>🎴 1 из 5 на пик</span><span>⚗️ сыгранность с капитаном</span></div>
+      ${c.active ? `<div class="resume"><div><b>Незаконченная попытка</b><small>${chResume ? `пик ${chResume + 1} из ${DRAFT_PICKS}` : 'можно продолжить'}</small></div>
         <button class="ghostbtn sm" data-draft-act="chal-resume">Продолжить</button></div>` : ''}
       <div class="chalfoot"><span>${c.me ? `Ваш лучший: <b>${c.me.score}</b> · <b>#${c.me.place}</b> из ${c.players}` : `Участников: ${c.players}`}</span>${c.rewards ? '<span class="prize">🎁 месяц доступа</span>' : ''}</div>
       ${c.top.length ? `<div class="chaltop">${c.top.slice(0, 3).map(row).join('')}</div>` : ''}
