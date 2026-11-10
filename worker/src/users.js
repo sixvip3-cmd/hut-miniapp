@@ -56,8 +56,13 @@ async function listView(env, filter = 'all', page = 0, search = '') {
   let where = f.where.replaceAll(':now', String(t));
   const binds = [];
   if (search) {
-    where += ' AND (u.username LIKE ?1 OR u.first_name LIKE ?1 OR CAST(u.user_id AS TEXT) = ?2)';
-    binds.push(`%${search.replace(/^@/, '')}%`, search);
+    // SQLite LIKE не различает регистр только у латиницы — для кириллицы ищем ещё «бор», «Бор» и «БОР».
+    const q = search.replace(/^@/, '');
+    const low = q.toLowerCase();
+    const forms = [...new Set([q, low, low.charAt(0).toUpperCase() + low.slice(1), q.toUpperCase()])];
+    const like = forms.map((_, i) => `u.username LIKE ?${i + 2} OR u.first_name LIKE ?${i + 2}`).join(' OR ');
+    where += ` AND (CAST(u.user_id AS TEXT) = ?1 OR ${like})`;
+    binds.push(search, ...forms.map(s => `%${s}%`));
   }
   const [rows, count, totals] = await Promise.all([
     env.DB.prepare(`${BASE_SQL} WHERE ${where} ORDER BY u.last_seen DESC LIMIT ${PAGE} OFFSET ${page * PAGE}`).bind(...binds).all(),

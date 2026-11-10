@@ -1450,11 +1450,14 @@ function invite() {
 }
 
 // ---------- Картинка состава ----------
-const loadImage = src => new Promise(resolve => {
+// Картинка для холста состава. Не дольше 8 секунд: если сеть медленная или картинка зависла,
+// рисуем без неё (плашкой) — иначе «Поделиться составом» ждало бы бесконечно.
+const loadImage = (src, timeoutMs = 8000) => new Promise(resolve => {
   const img = new Image();
+  const timer = setTimeout(() => { img.src = ''; resolve(null); }, timeoutMs);
   img.crossOrigin = 'anonymous';
-  img.onload = () => resolve(img);
-  img.onerror = () => resolve(null);
+  img.onload = () => { clearTimeout(timer); resolve(img); };
+  img.onerror = () => { clearTimeout(timer); resolve(null); };
   img.src = src;
 });
 
