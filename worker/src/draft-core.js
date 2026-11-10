@@ -18,14 +18,14 @@ export const DRAFT_ORDER = [
 ];
 export const DRAFT_OPTIONS = 5;
 export const DRAFT_REROLLS = 3;
-export const DRAFT_CAP = 80; // базовый лимит суммарной зарплаты 20 игроков, $M (+ бонусы Salary)
+export const DRAFT_CAP = Infinity; // в обычном драфте лимита зарплаты нет — в любом раунде может выпасть любая карточка
 export const DRAFT_SAL_MAX = 40; // больше бонуса Salary в составе не бывает — защита от подмены
 export const DRAFTS_PER_DAY = 5;
-// Правила обычного драфта: все карточки, лимит $80M, бонусы Salary расширяют лимит.
+// Правила обычного драфта: все карточки, без лимита зарплаты (лимит есть только в челлендже).
 // rules: { key — имя набора правил (для кэша), cap, salBonus — расширяют ли бонусы Salary лимит,
 //          allow(id) — может ли карточка выпасть (null — любая),
 //          captainTier(id) — очередь капитана: 0 выпадает первым, 2 — последним (необязательно) }
-export const DRAFT_RULES = { key: 'draft', cap: DRAFT_CAP, salBonus: true, allow: null };
+export const DRAFT_RULES = { key: 'draft', cap: DRAFT_CAP, salBonus: false, allow: null };
 const EXTRA_PLAYERS = 60;
 const EXTRA_COACHES = 100; // тренеров мало (~40) — в запасе все, чтобы найти того, у кого что-то сработает
 

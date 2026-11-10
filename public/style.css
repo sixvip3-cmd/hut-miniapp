@@ -727,3 +727,60 @@ body.challenge-mode label:has(#picker-allpos) { display: none; }
 .draft-bar .rules { margin: 0 2px 10px; }
 .dmeta .over, .hint.over { color: var(--red); }
 .dsyn .cap.part { color: #9ad9ff; background: rgba(154,217,255,.12); border-color: rgba(154,217,255,.4); }
+
+/* ---------- Драфт: химия связей (как в FIFA) ---------- */
+body.draft-mode .slots.linked { position: relative; }
+.dlink { position: absolute; top: 50%; width: 22px; height: 7px; margin-top: -3.5px; border-radius: 4px; z-index: 3; pointer-events: none;
+  transform: translateX(-50%); background: #24365c; box-shadow: 0 0 0 2px rgba(3,10,28,.9); transition: background .2s; }
+.dlink.n3.i0 { left: calc((100% - 16px) / 3 + 4px); }
+.dlink.n3.i1 { left: calc((100% - 16px) * 2 / 3 + 12px); }
+.dlink.n2 { left: 50%; }
+.dlink.g { background: #34d399; box-shadow: 0 0 0 2px rgba(3,10,28,.9), 0 0 14px rgba(52,211,153,.75); }
+.dlink.y { background: #fbbf24; box-shadow: 0 0 0 2px rgba(3,10,28,.9), 0 0 14px rgba(251,191,36,.6); }
+.dlink.r { background: #f87171; }
+.dlink.pv { animation: dlink-blink .7s ease-in-out infinite alternate; }
+@keyframes dlink-blink { to { opacity: .45; } }
+.lchem { font: 600 11px/1 var(--display); letter-spacing: .6px; text-transform: uppercase; color: var(--muted);
+  padding: 5px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,.15); }
+.lchem.on { color: #34d399; border-color: rgba(52,211,153,.45); background: rgba(52,211,153,.08); }
+.card.ghost, .staff-tile.ghost { outline: 2px solid #9ad9ff; outline-offset: 2px; box-shadow: 0 0 0 6px rgba(154,217,255,.15); }
+
+/* Варианты лентой */
+#picker.dpick .dopts { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 -14px; padding: 2px 14px 10px;
+  scrollbar-width: none; overscroll-behavior-x: contain; }
+#picker.dpick .dopts::-webkit-scrollbar { display: none; }
+.dopt { flex: none; width: 136px; scroll-snap-align: start; display: flex; flex-direction: column; gap: 4px; text-align: left; color: inherit;
+  background: none; border: 0; padding: 0; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: pan-x; }
+.dopt .dimg { position: relative; display: block; aspect-ratio: 804 / 1128; border-radius: 12px; overflow: hidden;
+  background: linear-gradient(160deg, var(--c1, #2a2f3a), var(--c2, #14171d)); border: 1px solid rgba(255,255,255,.2);
+  box-shadow: 0 12px 24px -12px rgba(0,0,0,.9); transition: transform .15s; }
+.dopt .dimg .card-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
+.dopt .dovr { position: absolute; left: 9px; top: 7px; font: 700 26px/1 var(--display); color: #fff; z-index: 0; }
+.dopt .dimg .card-img + .dovr { visibility: hidden; } /* картинка есть — рейтинг уже на ней */
+.dopt .dovr small { display: block; font: 600 11px/1.2 var(--font); opacity: .8; }
+.dopt.held .dimg { transform: scale(.95); }
+.dopt:focus-visible .dimg { outline: 2px solid #9ad9ff; outline-offset: 2px; }
+.dopt .dn { font: 600 14px/1.1 var(--display); letter-spacing: .4px; text-transform: uppercase; margin-top: 2px;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dopt .dt2 { font-size: 11px; color: var(--muted); line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.dchips { display: flex; flex-wrap: wrap; gap: 4px; }
+.dchips i { font: 600 10.5px/1 var(--font); font-style: normal; padding: 4px 6px; border-radius: 7px; max-width: 136px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  background: rgba(255,255,255,.07); color: var(--muted); }
+.dchips i.g { color: #34d399; background: rgba(52,211,153,.14); }
+.dchips i.y { color: #fbbf24; background: rgba(251,191,36,.14); }
+.dchips i.r { color: #f87171; background: rgba(248,113,113,.12); }
+.dchips i.o { color: var(--cyan); } .dchips i.s { color: var(--green); } .dchips i.a { color: var(--purple); }
+.dchips i.cap { color: #ffd36b; background: rgba(255,211,107,.12); }
+#picker.dpick .dpick-head { gap: 8px; }
+#picker.dpick .dpick-head b.up { color: #34d399; }
+
+/* Превью: лист уезжает вниз, состав виден целиком */
+#picker.peek { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; pointer-events: none; }
+#picker.peek .sheet-body { transform: translateY(calc(100% - 118px)); transition: transform .22s ease; pointer-events: auto; animation: none; }
+#picker .sheet-body { transition: transform .22s ease; }
+
+.brk .lk { font-style: normal; font: 600 11px/1 var(--font); padding: 4px 6px; border-radius: 7px; margin-right: 4px; }
+.brk .lk.g { color: #34d399; background: rgba(52,211,153,.14); }
+.brk .lk.y { color: #fbbf24; background: rgba(251,191,36,.14); }
+
+@media (prefers-reduced-motion: reduce) { .dlink.pv { animation: none; } #picker .sheet-body, .dopt .dimg { transition: none; } }

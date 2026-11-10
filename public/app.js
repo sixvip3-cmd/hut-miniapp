@@ -210,6 +210,10 @@ function renderSummary(sum) {
 
   $('#sum-ap').textContent = sum.boost.AP;
   $('#bar-ap i').style.width = `${Math.min(100, (sum.boost.AP / CHEMISTRY.maxAp) * 100)}%`;
+  $('#ap-label').textContent = 'Ability points';
+  $('#ap-max').textContent = `/ ${CHEMISTRY.maxAp}`;
+  $('#bar-salary').style.visibility = '';
+  if (state.draft) decorateDraftSummary(); // в драфте и челлендже: химия связей, свой лимит (public/draft.js)
 }
 
 function bonusChips(t) {
@@ -468,6 +472,8 @@ function openPicker(key) {
   $('#picker-accent').querySelectorAll('input').forEach(i => (i.checked = state.accent.has(i.value)));
   $('#picker-search').value = '';
   $('#picker-allpos').checked = false;
+  $('#picker').classList.toggle('dpick', !!state.draft);
+  $('#picker').classList.remove('peek');
   $('#picker').hidden = false;
   renderPickerList();
   if (!state.draft) setTimeout(() => $('#picker-search').focus(), 50);

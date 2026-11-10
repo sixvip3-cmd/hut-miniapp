@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { DRAFT_ORDER, DRAFT_REROLLS, DRAFT_RULES, draftDeal, verifyDraft } from '../worker/src/draft-core.js';
 import { CHALLENGES, CHALLENGE_SLOTS, ONE_CLUB, challengeAllows, challengeCheck, challengeNow, challengeRules } from '../worker/src/challenge-core.js';
-import { draftSalAtPicks, scoreLineup } from '../worker/src/score-core.js';
+import { LINK_SCORE, draftSalAtPicks, lineupLinks, linkKind, scoreLineup } from '../worker/src/score-core.js';
 import { expandPlayers } from '../worker/src/game-data.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -155,4 +155,28 @@ test('челлендж-драфт: капитаны — сначала нужн�
     for (const id of own) assert.ok(opts.includes(id), 'русский капитан всегда в пятёрке');
     assert.equal(opts.filter(id => rules.captainTier(id) <= 1).length, Math.min(5, useful.length));
   }
+});
+
+test('химия связей: клуб — зелёная, страна — жёлтая, иначе красная; очки = 2 × химия', () => {
+  const a = { team: 'Edmonton Oilers', nation: 'Canada' };
+  assert.equal(linkKind(a, { team: 'EDMONTON OILERS ALUMNI', nation: 'USA' }), 'g'); // легенда клуба — тот же клуб
+  assert.equal(linkKind(a, { team: 'Toronto Maple Leafs', nation: 'Canada' }), 'y');
+  assert.equal(linkKind(a, { team: 'Toronto Maple Leafs', nation: 'Sweden' }), 'r');
+  assert.equal(linkKind(a, null), null);
+  const { picks } = playDraft(77);
+  const lineup = slotsOnly(picks);
+  const L = lineupLinks(lineup, data.byId);
+  assert.equal(L.max, 36); // 12 пар соседей × 3
+  assert.equal(L.g + L.y + L.r, 12);
+  assert.equal(L.total, L.g * 3 + L.y);
+  assert.equal(scoreLineup(lineup, picks.CAPTAIN, picks.COACH, data).chem, L.total * LINK_SCORE);
+});
+
+test('обычный драфт без лимита зарплаты: сильные карточки выпадают и в последних пиках', () => {
+  let late = 0;
+  for (let seed = 1; seed <= 30; seed++) {
+    const { picks } = playDraft(seed * 13, (opts, key) => (key === 'COACH' ? opts[0] : opts.map(id => data.byId[id]).sort((x, y) => y.ovr - x.ovr)[0].id));
+    late = Math.max(late, data.byId[picks['G-BACKUP']].ovr, data.byId[picks['F4-RW']].ovr);
+  }
+  assert.ok(late >= 88, `лучшая карточка последних пиков — ${late}`);
 });

@@ -122,7 +122,8 @@ async function finish(request, env, uid) {
   const lineup = Object.fromEntries(DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH').map(k => [k, picks[k]]));
   const sc = scoreLineup(lineup, picks.CAPTAIN, picks.COACH, data);
   const score = sc.total;
-  const breakdown = { base: sc.base, avgOvr: sc.avgOvr, chem: sc.chem, captain: sc.captain, coach: sc.coach, boost: sc.boost, cap: rules.cap };
+  const breakdown = { base: sc.base, avgOvr: sc.avgOvr, chem: sc.chem, links: sc.links, captain: sc.captain, coach: sc.coach,
+    cap: Number.isFinite(rules.cap) ? rules.cap : null };
   await env.DB.prepare("UPDATE drafts SET status = 'done', score = ?, breakdown = ?, picks = ?, verified = 1, finished_at = ? WHERE id = ?")
     .bind(score, JSON.stringify(breakdown), JSON.stringify(picks), now(), d.id).run();
   const left = await leftToday(env, uid, mode);
@@ -169,6 +170,6 @@ async function board(request, env, uid) {
     today: { best: today.best || 0, played: today.n },
     left: await leftToday(env, uid, 'draft'),
     active: !!active,
-    cap: DRAFT_CAP,
+    cap: Number.isFinite(DRAFT_CAP) ? DRAFT_CAP : null,
   });
 }
