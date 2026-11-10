@@ -127,3 +127,8 @@ INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_options4', 'done');
 DELETE FROM drafts WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v3');
 DELETE FROM challenge_entries WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v3');
 INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_reset_v3', 'done');
+
+-- Сыгранность как в FIFA (у игрока 0–10, сумма до 100): старые результаты ниже — один раз очищаем (draft_reset_v4).
+DELETE FROM drafts WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v4');
+DELETE FROM challenge_entries WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v4');
+INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_reset_v4', 'done');
