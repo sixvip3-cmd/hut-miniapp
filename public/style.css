@@ -792,3 +792,15 @@ body.draft-mode .slots.linked { position: relative; }
 .dchem.c1 i:nth-child(-n+1), .dchem.c2 i:nth-child(-n+2), .dchem.c3 i { background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,.8); }
 .dchem.c1 i:nth-child(-n+1), .dchem.c2 i:nth-child(-n+2) { background: #fbbf24; box-shadow: 0 0 6px rgba(251,191,36,.7); }
 .dchem.c0 { outline: 1px solid rgba(248,113,113,.6); }
+
+/* Выбор в драфте: все 5 карточек в ширину экрана, без прокрутки */
+#picker.dpick .dopts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; overflow: visible; margin: 0; padding: 2px 0 10px; }
+#picker.dpick .dopt { width: auto; min-width: 0; gap: 3px; }
+#picker.dpick .dopt .dimg { border-radius: 8px; }
+#picker.dpick .dopt .dovr { left: 5px; top: 4px; font-size: 17px; }
+#picker.dpick .dopt .dovr small { font-size: 8px; }
+#picker.dpick .dopt .dn { font-size: 10.5px; letter-spacing: .2px; line-height: 1.1; overflow-wrap: anywhere; }
+#picker.dpick .dopt .dt2 { font-size: 9px; line-height: 1.25; -webkit-line-clamp: 3; overflow-wrap: anywhere; }
+#picker.dpick .dchips { flex-direction: column; align-items: stretch; gap: 3px; }
+#picker.dpick .dchips i { font-size: 9px; padding: 3px 4px; border-radius: 5px; max-width: none; white-space: normal; line-height: 1.15; text-align: center; overflow-wrap: anywhere; }
+#picker.dpick .dpick-head { font-size: 11px; flex-wrap: wrap; }
