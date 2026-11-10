@@ -128,7 +128,7 @@ function renderDraftScreen() {
     const keys = line.slots.map(s => `${line.id}-${s}`);
     const links = team.links.filter(l => l.a.startsWith(`${line.id}-`));
     const filled = keys.filter(k => team.players[k]).length;
-    const chem = filled ? Math.round((keys.reduce((t, k) => t + (team.players[k]?.chem || 0), 0) / keys.length) * 100) : 0;
+    const chem = filled ? Math.round((keys.reduce((t, k) => t + (team.players[k]?.chem || 0), 0) / filled) * 100) : 0;
     return `<div class="ds-line"><div class="ds-lh"><span>${esc(line.label.replace('Звено ', 'Звено\u00a0'))}</span><em class="${chem >= 67 ? 'g' : chem >= 34 ? 'y' : 'r'}">${filled ? `⚗ ${chem}` : ''}</em></div>
       <div class="ds-slots n${keys.length}">${keys.map(k => miniCard(k, lineup, team, open)).join('')}
         ${links.map((l, i) => `<span class="ds-link n${keys.length} i${i}${l.kind ? ` ${l.kind}` : ''}"></span>`).join('')}</div></div>`;
@@ -162,7 +162,7 @@ function renderDraftScreen() {
       ${arrange
         ? `<button class="btn-primary" data-ds="finish" type="button">Завершить драфт · ${sc.total} из 200</button>
            <p class="hint">Меняются местами игроки одной позиции (например, центры разных звеньев). Сыгранность пересчитывается сразу.</p>`
-        : `<p class="hint">🎴 1 из ${DRAFT_OPTIONS} на пик · связи: <i class="lk g"></i>сильная <i class="lk y"></i>частичная <i class="lk r"></i>нет · ●●● — сыгранность игрока</p>`}
+        : `<p class="hint">🎴 1 из ${DRAFT_OPTIONS} на пик · связи: <i class="lk g"></i>сильная <i class="lk y"></i>частичная <i class="lk r"></i>нет · ●●● — сыгранность игрока · 100 = почти все связаны</p>`}
     </div>`;
 }
 
