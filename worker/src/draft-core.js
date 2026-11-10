@@ -1,6 +1,8 @@
 // Драфт: общий генератор вариантов для приложения и сервера.
-// Варианты зависят только от «зерна» драфта, номера пика, числа перевыбросов, уже выбранного
-// и бонуса Salary на момент пика — поэтому сервер может повторить их и проверить выбор.
+// Варианты зависят только от «зерна» драфта, номера пика, выбранной на этот пик позиции, числа
+// перевыбросов и уже выбранного — поэтому сервер может повторить их и проверить выбор.
+// Позицию для каждого пика (после капитана) игрок выбирает сам; порядок выбора приложение присылает
+// серверу (order). В конце игрок может переставить игроков одной позиции между звеньями (checkArrangement).
 // На каждый пик — 4 случайных варианта и запасной список (extra): если среди четырёх нет ни одной
 // карточки с бонусом в звене, приложение подставляет первую подходящую из запасного списка.
 // Те же правила работают и для челленджа недели: в нём варианты берутся только из карточек,
@@ -16,17 +18,19 @@ export const DRAFT_ORDER = [
   'G-STARTER', 'G-BACKUP',
   'COACH',
 ];
-// Капитан — первый пик и сразу встаёт в состав на свою позицию (первый свободный слот этой позиции:
+// Капитан — первый пик и сразу встаёт в состав на свою позицию (первый слот этой позиции:
 // центр → «Звено 1 · C», вратарь → основной). Этот слот потом не разыгрывается, поэтому пиков 21:
-// капитан, ещё 19 игроков и тренер. Порядок пиков после капитана — draftOrder(pool, captainId).
+// капитан, ещё 19 игроков и тренер — в любом порядке, который выберет игрок.
 export const DRAFT_SLOTS = DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH');
 export const DRAFT_PICKS = DRAFT_ORDER.length - 1;
-export const captainSlotFor = pos => DRAFT_SLOTS.find(k => (k.split('-')[1] === 'STARTER' ? 'G' : k.split('-')[1]) === pos) || null;
-export function draftOrder(pool, captainId) {
-  if (captainId == null) return DRAFT_ORDER.slice(0, 1);
-  const p = poolIndex(pool).get(Number(captainId));
-  const slot = p ? captainSlotFor(p[1]) : null;
-  return DRAFT_ORDER.filter(k => k !== slot);
+export const slotPosOf = key => (key.split('-')[1] === 'STARTER' || key.split('-')[1] === 'BACKUP' ? 'G' : key.split('-')[1]);
+export const captainSlotFor = pos => DRAFT_SLOTS.find(k => slotPosOf(k) === pos) || null;
+// Что ещё можно выбрать: пустые слоты (кроме слота капитана) и тренер. До капитана — только капитан.
+export function openPicks(pool, picks) {
+  if (picks.CAPTAIN == null) return ['CAPTAIN'];
+  const p = poolIndex(pool).get(Number(picks.CAPTAIN));
+  const capSlot = p ? captainSlotFor(p[1]) : null;
+  return [...DRAFT_SLOTS.filter(k => k !== capSlot), 'COACH'].filter(k => picks[k] == null);
 }
 export const DRAFT_OPTIONS = 4; // вариантов на пик
 export const DRAFT_REROLLS = 3;
@@ -36,7 +40,7 @@ export const DRAFTS_PER_DAY = 5;
 // Правила обычного драфта: все карточки, без лимита зарплаты (лимит есть только в челлендже).
 // rules: { key — имя набора правил (для кэша), cap, salBonus — расширяют ли бонусы Salary лимит,
 //          allow(id) — может ли карточка выпасть (null — любая),
-//          captainTier(id) — очередь капитана: 0 выпадает первым, 2 — последним (необязательно) }
+// }
 export const DRAFT_RULES = { key: 'draft', cap: DRAFT_CAP, salBonus: false, allow: null };
 const EXTRA_PLAYERS = 60;
 const EXTRA_COACHES = 100; // тренеров мало (~40) — в запасе все, чтобы найти того, у кого что-то сработает
@@ -59,12 +63,10 @@ export const nameKey = name => String(name).trim().toLowerCase();
 
 // pool: { players: [[id, pos, salary, ovr, name]], captains: [id], coaches: [id] }
 // picks: { CAPTAIN: id, 'F1-LW': id, ..., COACH: id } — выбранное до этого пика
-// salBonus: бонус Salary состава на момент пика (расширяет лимит, как в игре)
+// key: позиция, которую игрок выбрал для этого пика ('CAPTAIN' на первом пике)
 // rules: DRAFT_RULES или правила челленджа
 // → { opts: 4 случайных, extra: запасной список для подстановки «варианта с бонусом» }
-export function draftDeal(pool, seed, pickIndex, reroll, picks, salBonus = 0, rules = DRAFT_RULES) {
-  const order = draftOrder(pool, picks.CAPTAIN);
-  const key = order[pickIndex];
+export function draftDeal(pool, seed, pickIndex, reroll, picks, key, rules = DRAFT_RULES) {
   const rand = rng((seed ^ Math.imul(pickIndex + 1, 0x9e3779b1) ^ Math.imul(reroll + 1, 0x85ebca6b)) >>> 0);
   if (key === 'COACH') return deal(pool.coaches.map(id => ({ id, w: 1 })), rand, EXTRA_COACHES);
 
@@ -86,10 +88,9 @@ export function draftDeal(pool, seed, pickIndex, reroll, picks, salBonus = 0, ru
   // так работает обычный драфт. Если с ним не выпадает ничего (узкий пул челленджа, например один клуб),
   // берём точный запас: самые дешёвые свободные игроки на оставшиеся слоты (с одним игроком про запас,
   // а если и так ничего — без него).
-  const remaining = order.slice(pickIndex + 1).filter(k => k !== 'COACH' && k !== 'CAPTAIN');
+  const remaining = openPicks(pool, picks).filter(k => k !== key && k !== 'COACH');
   const cheapest = minSalaries(pool, rules);
-  const sal = rules.salBonus ? Math.max(0, Math.min(Number(salBonus) || 0, DRAFT_SAL_MAX)) : 0;
-  const room = rules.cap + sal - salarySpent(pool, picks) + 1e-6;
+  const room = rules.cap - salarySpent(pool, picks) + 1e-6;
   const free = bySlot(pool, slotPos(key), rules).filter(p => !taken.has(p.name));
   const reserves = [
     () => remaining.reduce((t, k) => t + cheapest(slotPos(k)), 0),
@@ -247,24 +248,35 @@ export function finalOptions(dealt, key, seed, pickIndex, hasBonus) {
 // Проверка завершённого драфта: каждый выбор — из выпавших вариантов (5 + запасной список),
 // игроки не повторяются, перевыбросов не больше разрешённого, зарплата в лимите.
 // rerolls: { [pickIndex]: сколько раз перевыбрасывали }, salAt: { [pickIndex]: бонус Salary на момент пика }.
-// hasBonus(key, id, done) — тот же признак «варианта с бонусом», что в приложении: выбор принимается только
-// из пятёрки, которую видел игрок (без него — из пятёрки и запасного списка).
-export function verifyDraft(pool, seed, picks, rerolls, salAt = {}, rules = DRAFT_RULES, hasBonus = null) {
+// Проверка завершённого драфта: order — позиции в том порядке, в котором игрок их выбирал
+// (первой — 'CAPTAIN', дальше каждый свободный слот и тренер ровно по разу). Каждый выбор — только из
+// той четвёрки, которую видел игрок (hasBonus — тот же признак «варианта с бонусом», что в приложении).
+export function verifyDraft(pool, seed, picks, order, rerolls, rules = DRAFT_RULES, hasBonus = null) {
   const used = Object.values(rerolls || {}).reduce((t, n) => t + n, 0);
   if (used > DRAFT_REROLLS) return 'too many rerolls';
+  if (!Array.isArray(order) || order.length !== DRAFT_PICKS || order[0] !== 'CAPTAIN') return 'bad order';
   const done = {};
-  const order = draftOrder(pool, picks.CAPTAIN);
-  if (picks.CAPTAIN == null || order.length !== DRAFT_PICKS) return 'missing CAPTAIN';
   for (let i = 0; i < order.length; i++) {
     const key = order[i];
+    if (!openPicks(pool, done).includes(key)) return `bad order ${key}`;
     const choice = picks[key];
     if (choice == null) return `missing ${key}`;
-    const dealt = draftDeal(pool, seed, i, rerolls?.[i] || 0, done, salAt?.[i] || 0, rules);
+    const dealt = draftDeal(pool, seed, i, rerolls?.[i] || 0, done, key, rules);
     const allowedIds = hasBonus ? finalOptions(dealt, key, seed, i, id => hasBonus(key, id, done)) : [...dealt.opts, ...dealt.extra];
     if (!allowedIds.includes(choice)) return `bad pick ${key}`;
     done[key] = choice;
   }
-  const maxSal = rules.salBonus ? Math.max(0, ...Object.values(salAt || {}).map(v => Math.min(Number(v) || 0, DRAFT_SAL_MAX))) : 0;
-  if (salarySpent(pool, picks) > rules.cap + maxSal + 0.05) return 'salary cap';
+  if (salarySpent(pool, picks) > rules.cap + 0.05) return 'salary cap';
+  return null;
+}
+
+// Итоговая расстановка: те же 20 игроков (капитан и 19 выбранных), каждый — в слоте своей позиции.
+// Менять местами можно только игроков одной позиции (например, центров разных звеньев).
+export function checkArrangement(pool, picks, arrangement) {
+  const byId = poolIndex(pool);
+  const picked = [picks.CAPTAIN, ...Object.entries(picks).filter(([k]) => k !== 'CAPTAIN' && k !== 'COACH').map(([, id]) => id)].map(Number).sort((a, b) => a - b);
+  const placed = DRAFT_SLOTS.map(k => Number(arrangement?.[k])).sort((a, b) => a - b);
+  if (picked.length !== DRAFT_SLOTS.length || picked.join() !== placed.join()) return 'arrangement players';
+  for (const k of DRAFT_SLOTS) if (byId.get(Number(arrangement[k]))?.[1] !== slotPosOf(k)) return `arrangement position ${k}`;
   return null;
 }

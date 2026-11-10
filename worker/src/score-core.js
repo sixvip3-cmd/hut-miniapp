@@ -1,97 +1,132 @@
-// Очки драфта и челленджа: общий расчёт для приложения и сервера.
-// Сервер не доверяет очкам из приложения — пересчитывает их этим же кодом по выбранным карточкам.
+// Оценка драфта и челленджа: общий расчёт для приложения и сервера.
+// Сервер не доверяет цифрам из приложения — пересчитывает их этим же кодом по выбранным карточкам.
 //
-// Сыгранность — с капитаном. Капитан стоит в составе как обычный игрок, а каждый из остальных 19 игроков
-// получает очки за совпадения с ним: тот же клуб +3, та же страна +2, та же лига +1 (до 6 у игрока).
-// Сумма переводится в шкалу 0–100: 100 — у всех 19 игроков клуб, страна и лига капитана.
-// Комбинации звеньев HUT (+OVR/+$M/+AP) и бонус капитана в очки драфта не идут; бонус тренера — как раньше.
+// Две шкалы, у каждой максимум 100:
+//   Рейтинг — средний OVR 20 игроков (с прибавкой OVR от сработавших комбинаций тренера в их звене).
+//   Сыгранность — у каждого игрока поровну из двух частей:
+//     · с капитаном: тот же клуб +3, та же страна +2, та же лига +1 (до 6);
+//     · с партнёрами по звену (LW–C–RW, пара защитников, пара вратарей): по тем же правилам, в среднем по партнёрам.
+//   Сыгранность игрока — 0…1 (на карточке 0–3 точки), состава — среднее × 100.
+// Итог для таблицы — сумма шкал (до 200).
 // В приложение этот файл попадает как обычный скрипт (scripts/build-site.js убирает import/export).
 
 import { LINES, coachStatus } from './chemistry-core.js';
 import { captainSlotFor } from './draft-core.js';
 
-const scorePts = b => b.OVR * 3 + b.SAL + b.AP; // OVR в очках считаем ×3
-
-export const CAPTAIN_LINK = { club: 3, nation: 2, league: 1 };
-export const CHEM_PER_PLAYER = CAPTAIN_LINK.club + CAPTAIN_LINK.nation + CAPTAIN_LINK.league; // 6
-export const CHEM_MAX = 100;
+export const LINK = { club: 3, nation: 2, league: 1 };
+export const LINK_MAX = LINK.club + LINK.nation + LINK.league; // 6
 
 // Клуб без приписки Alumni: легенда клуба связана с его нынешними игроками.
 const clubKey = t => String(t || '').toUpperCase().replace(/\s+ALUMNI$/, '').replace(/^ST LOUIS/, 'ST. LOUIS').trim();
 const nationKey = n => String(n || '').trim().toUpperCase();
 const leagueKey = l => String(l || '').trim().toUpperCase();
-const SLOT_KEYS = LINES.flatMap(line => line.slots.map(s => `${line.id}-${s}`));
+export const SLOT_KEYS = LINES.flatMap(line => line.slots.map(s => `${line.id}-${s}`));
 
-// Совпадения игрока с капитаном: { club, nation, league, pts } (pts — 0…6)
-export function captainLink(p, cap) {
-  if (!p || !cap) return { club: false, nation: false, league: false, pts: 0 };
-  const club = clubKey(p.team) === clubKey(cap.team);
-  const nation = nationKey(p.nation) === nationKey(cap.nation);
-  const league = leagueKey(p.league) === leagueKey(cap.league);
-  return { club, nation, league, pts: (club ? CAPTAIN_LINK.club : 0) + (nation ? CAPTAIN_LINK.nation : 0) + (league ? CAPTAIN_LINK.league : 0) };
+// Связь двух игроков: { club, nation, league, pts 0…6, kind: 'g' ≥4 | 'y' 1…3 | 'r' 0 }
+export function linkOf(a, b) {
+  if (!a || !b) return null;
+  const club = clubKey(a.team) === clubKey(b.team);
+  const nation = nationKey(a.nation) === nationKey(b.nation);
+  const league = leagueKey(a.league) === leagueKey(b.league);
+  const pts = (club ? LINK.club : 0) + (nation ? LINK.nation : 0) + (league ? LINK.league : 0);
+  return { club, nation, league, pts, kind: pts >= 4 ? 'g' : pts > 0 ? 'y' : 'r' };
+}
+// Совместимость: связь с капитаном (без капитана — нули).
+export const captainLink = (p, cap) => linkOf(p, cap) || { club: false, nation: false, league: false, pts: 0, kind: 'r' };
+
+// Партнёры слота по звену: LW–C–RW (у центра двое), пара защитников, пара вратарей.
+export function slotNeighbours(key) {
+  const [lineId, slot] = key.split('-');
+  const line = LINES.find(l => l.id === lineId);
+  if (!line) return [];
+  const i = line.slots.indexOf(slot);
+  return [line.slots[i - 1], line.slots[i + 1]].filter(Boolean).map(s => `${lineId}-${s}`);
 }
 
-// Сыгранность состава с капитаном:
-// { total: 0–100, raw, rawMax, bySlot: { 'F1-LW': { club, nation, league, pts } }, byLine: { F1: очки }, full, capSlot }
-export function captainChem(lineup, captainId, byId) {
+// Сыгранность состава:
+// { total 0–100, players: { slot: { chem 0…1, stars 0–3, cap, line } }, links: [{ a, b, pts, kind }], capSlot, byLine }
+export function teamChem(lineup, captainId, byId) {
   const cap = captainId != null ? byId[captainId] : null;
   const capSlot = cap ? SLOT_KEYS.find(k => lineup[k] === captainId) || null : null;
-  const rawMax = (SLOT_KEYS.length - 1) * CHEM_PER_PLAYER; // 19 игроков × 6
-  const out = { total: 0, raw: 0, rawMax, max: CHEM_MAX, bySlot: {}, byLine: {}, full: 0, capSlot };
-  for (const line of LINES) out.byLine[line.id] = 0;
-  if (!cap) return out;
+  const out = { total: 0, players: {}, links: [], capSlot, byLine: {} };
+  for (const line of LINES) {
+    out.byLine[line.id] = 0;
+    for (let i = 1; i < line.slots.length; i++) {
+      const a = `${line.id}-${line.slots[i - 1]}`;
+      const b = `${line.id}-${line.slots[i]}`;
+      const l = linkOf(byId[lineup[a]], byId[lineup[b]]);
+      out.links.push({ a, b, pts: l ? l.pts : null, kind: l ? l.kind : null });
+    }
+  }
+  let sum = 0;
   for (const k of SLOT_KEYS) {
     const p = byId[lineup[k]];
-    if (!p || k === capSlot) continue;
-    const l = captainLink(p, cap);
-    out.bySlot[k] = l;
-    out.raw += l.pts;
-    out.byLine[k.split('-')[0]] += l.pts;
-    if (l.pts === CHEM_PER_PLAYER) out.full++;
+    if (!p) continue;
+    const capPart = k === capSlot ? 1 : cap ? captainLink(p, cap).pts / LINK_MAX : 0;
+    const mates = slotNeighbours(k).map(n => byId[lineup[n]]).filter(Boolean);
+    // Пока партнёров нет — часть «звено» не известна: считаем её нулём (растёт по мере сборки).
+    const linePart = mates.length ? mates.reduce((t, m) => t + linkOf(p, m).pts, 0) / (slotNeighbours(k).length * LINK_MAX) : 0;
+    const chem = (capPart + linePart) / 2;
+    out.players[k] = { chem, stars: Math.round(chem * 3), cap: capPart, line: linePart };
+    out.byLine[k.split('-')[0]] += chem;
+    sum += chem;
   }
-  out.total = Math.round((out.raw * CHEM_MAX) / rawMax);
+  out.total = Math.round((sum / SLOT_KEYS.length) * 100);
   return out;
 }
 
-// Состав из пиков драфта: разыгранные слоты + капитан в своём слоте.
+// lineup: { 'F1-LW': id, ... } — 20 слотов (капитан среди них); captainId, coachId (или null)
+// data: { byId, combos, captains, coaches }
+// → { rating 0–100, chem 0–100, total (до 200), avgOvr, players, coachInfo, ... }
+export function scoreLineup(lineup, captainId, coachId, data) {
+  const coach = coachId != null ? data.coaches.find(c => c.id === coachId) : null;
+  const co = coach ? coachStatus(coach, lineup, data.byId) : null;
+  let ovrSum = 0;
+  let rawSum = 0;
+  let n = 0;
+  for (const k of SLOT_KEYS) {
+    const p = data.byId[lineup[k]];
+    if (!p) continue;
+    const boost = co?.lineTotals?.[k.split('-')[0]]?.OVR || 0; // комбинации тренера в звене игрока
+    ovrSum += p.ovr + boost;
+    rawSum += p.ovr;
+    n++;
+  }
+  const chem = teamChem(lineup, captainId, data.byId);
+  const avg = n ? ovrSum / n : 0;
+  const rating = n ? Math.min(100, Math.round(avg)) : 0;
+  return {
+    rating,
+    chem: chem.total,
+    total: rating + chem.total,
+    avgOvr: n ? Math.round((rawSum / n) * 10) / 10 : 0,
+    players: n,
+    squad: { total: chem.total, max: 100 },
+    team: chem,
+    coachOvr: co ? co.total.OVR : 0,
+    coachInfo: co ? { active: co.activeCount, of: co.combos.length, total: co.total } : null,
+  };
+}
+
+// Состав из пиков драфта: выбранные слоты + капитан в своём слоте.
 export function lineupFromDraftPicks(picks, byId) {
   const lu = Object.fromEntries(Object.entries(picks).filter(([k]) => k !== 'CAPTAIN' && k !== 'COACH'));
   if (picks.CAPTAIN != null && byId[picks.CAPTAIN]) lu[captainSlotFor(byId[picks.CAPTAIN].pos)] = picks.CAPTAIN;
   return lu;
 }
 
-// «Вариант с бонусом» (одинаково в приложении и на сервере): игрок совпадает с капитаном по клубу, стране
-// или лиге; тренер — у него сработает хоть одна комбинация в уже собранном составе.
+// «Вариант с бонусом» (одинаково в приложении и на сервере): игрок связан с капитаном или с уже
+// стоящим партнёром по звену; тренер — у него сработает хоть одна комбинация в собранном составе.
 export function draftBonus(data) {
   return (key, id, picks) => {
     if (key === 'CAPTAIN') return true;
+    const lineup = lineupFromDraftPicks(picks, data.byId);
     if (key === 'COACH') {
       const c = data.coaches.find(x => x.id === id);
-      return !!c && coachStatus(c, lineupFromDraftPicks(picks, data.byId), data.byId).activeCount > 0;
+      return !!c && coachStatus(c, lineup, data.byId).activeCount > 0;
     }
-    return captainLink(data.byId[id], data.byId[picks.CAPTAIN]).pts > 0;
+    const p = data.byId[id];
+    if (captainLink(p, data.byId[picks.CAPTAIN]).pts > 0) return true;
+    return slotNeighbours(key).some(n => (linkOf(p, data.byId[lineup[n]])?.pts || 0) > 0);
   };
-}
-
-// lineup: { 'F1-LW': id, ... } — 20 слотов (капитан среди них); captainId, coachId — капитан и тренер (или null)
-// data: { byId: { [id]: игрок }, combos, captains, coaches }
-// → очки: 4 × средний рейтинг 20 карточек + сыгранность с капитаном (0–100) + бонус тренера.
-export function scoreLineup(lineup, captainId, coachId, data) {
-  const players = SLOT_KEYS.map(k => data.byId[lineup[k]]).filter(Boolean);
-  const avg = players.length ? players.reduce((t, p) => t + p.ovr, 0) / players.length : 0;
-  const chem = captainChem(lineup, captainId, data.byId);
-  const coach = coachId != null ? data.coaches.find(c => c.id === coachId) : null;
-  const co = coach ? coachStatus(coach, lineup, data.byId) : null;
-  const part = {
-    base: Math.round(avg * 4),
-    avgOvr: Math.round(avg * 10) / 10,
-    players: players.length,
-    chem: chem.total,
-    squad: { total: chem.total, max: CHEM_MAX, full: chem.full, byLine: chem.byLine },
-    captain: 0,
-    coach: co ? scorePts(co.total) : 0,
-    coachInfo: co ? { active: co.activeCount, of: co.combos.length, total: co.total } : null,
-  };
-  part.total = part.base + part.chem + part.coach;
-  return part;
 }

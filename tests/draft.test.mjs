@@ -8,9 +8,9 @@ import vm from 'node:vm';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { DRAFT_OPTIONS, DRAFT_PICKS, DRAFT_REROLLS, DRAFT_RULES, DRAFT_SLOTS, captainSlotFor, draftDeal, draftOrder, finalOptions, verifyDraft } from '../worker/src/draft-core.js';
+import { DRAFT_OPTIONS, DRAFT_PICKS, DRAFT_RULES, DRAFT_SLOTS, captainSlotFor, checkArrangement, draftDeal, finalOptions, openPicks, slotPosOf, verifyDraft } from '../worker/src/draft-core.js';
 import { CHALLENGES, CHALLENGE_SLOTS, ONE_CLUB, challengeAllows, challengeCheck, challengeNow, challengeRules } from '../worker/src/challenge-core.js';
-import { CHEM_PER_PLAYER, captainChem, captainLink, draftBonus, scoreLineup } from '../worker/src/score-core.js';
+import { captainLink, draftBonus, lineupFromDraftPicks, linkOf, scoreLineup, teamChem } from '../worker/src/score-core.js';
 import { expandPlayers } from '../worker/src/game-data.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,30 +25,31 @@ const data = {
 };
 const pool = data.draftPool;
 const bonus = draftBonus(data);
-const verify = (seed, picks, rerolls, rules = DRAFT_RULES) => verifyDraft(pool, seed, picks, rerolls, {}, rules, bonus);
-// Состав из пиков: 19 разыгранных слотов + капитан в своём слоте.
-const lineupOf = picks => {
-  const capSlot = captainSlotFor(data.byId[picks.CAPTAIN].pos);
-  return Object.fromEntries(DRAFT_SLOTS.map(k => [k, k === capSlot ? picks.CAPTAIN : picks[k]]));
-};
+const verify = (seed, picks, order, rerolls, rules = DRAFT_RULES) => verifyDraft(pool, seed, picks, order, rerolls, rules, bonus);
+const lineupOf = picks => lineupFromDraftPicks(picks, data.byId);
 
-// Драфт так, как его играет приложение: порядок пиков зависит от капитана, вариант из пятёрки, иногда перевыброс.
+// Драфт так, как его играет приложение: капитан, дальше позиции в выбранном игроком порядке
+// (здесь — псевдослучайно по зерну), вариант из четвёрки, иногда перевыброс.
 function playDraft(seed, choose = opts => opts[0], rerollAt = [], rules = DRAFT_RULES) {
   const picks = {};
   const rerolls = {};
+  const order = [];
   for (let i = 0; i < DRAFT_PICKS; i++) {
-    const key = draftOrder(pool, picks.CAPTAIN)[i];
+    const open = openPicks(pool, picks);
+    const key = open[(seed * 31 + i * 17) % open.length];
     if (rerollAt.includes(i)) rerolls[i] = 1;
-    const opts = finalOptions(draftDeal(pool, seed, i, rerolls[i] || 0, picks, 0, rules), key, seed, i, id => bonus(key, id, picks));
+    const opts = finalOptions(draftDeal(pool, seed, i, rerolls[i] || 0, picks, key, rules), key, seed, i, id => bonus(key, id, picks));
     picks[key] = choose(opts, key);
+    order.push(key);
   }
-  return { picks, rerolls };
+  return { picks, rerolls, order };
 }
 
 test('честный драфт проходит проверку сервера', () => {
   for (let seed = 1; seed <= 15; seed++) {
-    const { picks, rerolls } = playDraft(seed * 7919, opts => opts[seed % opts.length], seed % 3 ? [] : [2, 9, 19]);
-    assert.equal(verify(seed * 7919, picks, rerolls), null, `seed ${seed}`);
+    const { picks, rerolls, order } = playDraft(seed * 7919, opts => opts[seed % opts.length], seed % 3 ? [] : [2, 9, 19]);
+    assert.equal(order[0], 'CAPTAIN');
+    assert.equal(verify(seed * 7919, picks, order, rerolls), null, `seed ${seed}`);
   }
 });
 
@@ -66,59 +67,93 @@ test('капитан сразу в составе: его слот не разы
   }
 });
 
-test('подменённый пик и лишние перевыбросы отклоняются', () => {
+test('подменённый пик, чужой порядок и лишние перевыбросы отклоняются', () => {
   const seed = 42;
-  const { picks, rerolls } = playDraft(seed);
-  const key = draftOrder(pool, picks.CAPTAIN)[3];
-  const pos = key.split('-')[1] === 'STARTER' || key.split('-')[1] === 'BACKUP' ? 'G' : key.split('-')[1];
-  const best = pool.players.filter(p => p[1] === pos).sort((a, b) => b[3] - a[3]).find(p => p[0] !== picks[key]);
-  assert.match(verify(seed, { ...picks, [key]: best[0] }, rerolls), /bad pick/);
-  // Карточка из запасного списка, которой нет в показанной пятёрке, тоже не принимается.
-  const done = Object.fromEntries(draftOrder(pool, picks.CAPTAIN).slice(0, 3).map(k => [k, picks[k]]));
-  const dealt = draftDeal(pool, seed, 3, 0, done, 0);
+  const { picks, rerolls, order } = playDraft(seed);
+  const key = order[3];
+  const best = pool.players.filter(p => p[1] === slotPosOf(key)).sort((a, b) => b[3] - a[3]).find(p => p[0] !== picks[key]);
+  assert.match(verify(seed, { ...picks, [key]: best[0] }, order, rerolls), /bad pick/);
+  // Карточка из запасного списка, которой нет в показанной четвёрке, тоже не принимается.
+  const done = Object.fromEntries(order.slice(0, 3).map(k => [k, picks[k]]));
+  const dealt = draftDeal(pool, seed, 3, 0, done, key);
   const shown = finalOptions(dealt, key, seed, 3, id => bonus(key, id, done));
   const hidden = dealt.extra.find(id => !shown.includes(id));
-  assert.match(verify(seed, { ...picks, [key]: hidden }, rerolls), /bad pick/);
+  assert.match(verify(seed, { ...picks, [key]: hidden }, order, rerolls), /bad pick/);
+  // Другой порядок — другие варианты: тот же набор пиков с переставленным порядком не проходит.
+  const swapped = [order[0], order[2], order[1], ...order.slice(3)];
+  assert.notEqual(verify(seed, picks, swapped, rerolls), null);
+  assert.match(verify(seed, picks, [...order.slice(1), 'CAPTAIN'], rerolls), /bad order/);
+  assert.match(verify(seed, picks, [...order.slice(0, 5), order[4], ...order.slice(6)], rerolls), /bad order/);
   const many = playDraft(99, undefined, [1, 2, 3, 4]);
-  assert.equal(verify(99, many.picks, many.rerolls), 'too many rerolls');
-  const { CAPTAIN, ...noCap } = picks;
-  assert.match(verify(seed, noCap, rerolls), /CAPTAIN/);
+  assert.equal(verify(99, many.picks, many.order, many.rerolls), 'too many rerolls');
 });
 
-test('сыгранность с капитаном: клуб +3, страна +2, лига +1, шкала 0–100', () => {
+test('расстановка: менять можно только игроков одной позиции', () => {
+  const { picks } = playDraft(7);
+  const lu = lineupOf(picks);
+  assert.equal(checkArrangement(pool, picks, lu), null);
+  const sw = { ...lu, 'F1-C': lu['F2-C'], 'F2-C': lu['F1-C'] };
+  assert.equal(checkArrangement(pool, picks, sw), null);
+  assert.match(checkArrangement(pool, picks, { ...lu, 'F1-C': lu['F1-LW'], 'F1-LW': lu['F1-C'] }), /position/);
+  assert.match(checkArrangement(pool, picks, { ...lu, 'F1-C': lu['F2-C'] }), /players/);
+  const other = pool.players.find(p => p[1] === 'C' && !Object.values(lu).includes(p[0]));
+  assert.match(checkArrangement(pool, picks, { ...lu, 'F1-C': other[0] }), /players/);
+});
+
+test('сыгранность: капитан + партнёры по звену (клуб +3, страна +2, лига +1), шкала 0–100', () => {
   const cap = { id: 1, team: 'Edmonton Oilers', nation: 'Canada', league: 'NHL', ovr: 90 };
-  assert.deepEqual(captainLink({ team: 'EDMONTON OILERS ALUMNI', nation: 'Canada', league: 'NHLAA' }, cap), { club: true, nation: true, league: false, pts: 5 });
-  assert.equal(captainLink({ team: 'Toronto Maple Leafs', nation: 'Sweden', league: 'NHL' }, cap).pts, 1);
+  const l = linkOf({ team: 'EDMONTON OILERS ALUMNI', nation: 'Canada', league: 'NHLAA' }, cap);
+  assert.deepEqual([l.club, l.nation, l.league, l.pts, l.kind], [true, true, false, 5, 'g']);
+  assert.equal(captainLink({ team: 'Toronto Maple Leafs', nation: 'Sweden', league: 'NHL' }, cap).kind, 'y');
   assert.equal(captainLink({ team: 'Frölunda', nation: 'Sweden', league: 'SHL' }, cap).pts, 0);
   const make = fn => {
     const byId = { 1: cap };
     const lineup = {};
     DRAFT_SLOTS.forEach((k, i) => {
       if (i === 0) { lineup[k] = 1; return; }
-      byId[i + 1] = { id: i + 1, ovr: 80, ...fn(i) };
+      byId[i + 1] = { id: i + 1, ovr: 80, ...fn(i, k) };
       lineup[k] = i + 1;
     });
-    return captainChem(lineup, 1, byId);
+    return teamChem(lineup, 1, byId);
   };
-  assert.equal(make(() => ({ team: 'Edmonton Oilers', nation: 'Canada', league: 'NHL' })).total, 100);
-  assert.equal(make(() => ({ team: 'X', nation: 'Y', league: 'Z' })).total, 0);
-  const half = make(i => (i <= 10 ? { team: 'Edmonton Oilers', nation: 'Canada', league: 'NHL' } : { team: 'X', nation: 'Y', league: 'Z' }));
-  assert.equal(half.raw, 10 * CHEM_PER_PLAYER);
-  assert.equal(half.total, Math.round((10 * 6 * 100) / (19 * 6)));
-  assert.equal(half.full, 10);
-  assert.equal(captainChem({}, null, {}).total, 0);
+  const same = { team: 'Edmonton Oilers', nation: 'Canada', league: 'NHL' };
+  assert.equal(make(() => same).total, 100);
+  assert.equal(make(i => ({ team: `X${i}`, nation: `Y${i}`, league: `Z${i}` })).total, 3); // только сам капитан: (1 + 0) / 2 / 20 // только капитан (половина его части)
+  // Звенья сыграны между собой, но не с капитаном: половина от максимума у всех, кроме звена капитана.
+  const lines = make((i, k) => ({ team: `T-${k.split('-')[0]}`, nation: `N-${k.split('-')[0]}`, league: 'L' }));
+  assert.ok(lines.total > 40 && lines.total < 60, `звенья без капитана: ${lines.total}`);
+  assert.equal(lines.links.filter(x => x.kind === 'g').length, lines.links.length - 1); // кроме связи с капитаном в F1
+  assert.equal(teamChem({}, null, {}).total, 0);
 });
 
-test('очки: 4 × средний OVR + сыгранность + тренер, из присланных приложением цифр ничего не берётся', () => {
+test('перестановка игроков одной позиции меняет сыгранность', () => {
+  const cap = { id: 1, pos: 'C', team: 'A', nation: 'X', league: 'L1', ovr: 90 };
+  const byId = { 1: cap };
+  const lineup = {};
+  DRAFT_SLOTS.forEach((k, i) => {
+    if (i === 1) { lineup[k] = 1; return; } // капитан — центр первого звена
+    byId[i + 100] = { id: i + 100, pos: slotPosOf(k), team: `Z${i}`, nation: `Q${i}`, league: `L${i + 9}`, ovr: 80 };
+    lineup[k] = i + 100;
+  });
+  // Нападающий клуба капитана стоит во втором звене — переставим его к капитану.
+  byId[lineup['F2-LW']] = { ...byId[lineup['F2-LW']], team: 'A', nation: 'X', league: 'L1' };
+  const before = teamChem(lineup, 1, byId).total;
+  const after = teamChem({ ...lineup, 'F1-LW': lineup['F2-LW'], 'F2-LW': lineup['F1-LW'] }, 1, byId).total;
+  assert.ok(after > before, `${before} → ${after}`);
+});
+
+test('оценка: рейтинг (средний OVR) + сыгранность, каждая до 100, итог — сумма', () => {
   const { picks } = playDraft(2024);
   const lu = lineupOf(picks);
-  const sc = scoreLineup(lu, picks.CAPTAIN, picks.COACH, data);
+  const sc = scoreLineup(lu, picks.CAPTAIN, null, data);
   const ids = Object.values(lu);
+  assert.equal(ids.length, 20);
   const avg = ids.reduce((t, id) => t + data.byId[id].ovr, 0) / ids.length;
-  assert.equal(sc.base, Math.round(avg * 4));
-  assert.equal(sc.chem, captainChem(lu, picks.CAPTAIN, data.byId).total);
-  assert.equal(sc.total, sc.base + sc.chem + sc.coach);
-  assert.equal(sc.captain, 0);
+  assert.equal(sc.rating, Math.round(avg));
+  assert.equal(sc.chem, teamChem(lu, picks.CAPTAIN, data.byId).total);
+  assert.equal(sc.total, sc.rating + sc.chem);
+  const withCoach = scoreLineup(lu, picks.CAPTAIN, picks.COACH, data);
+  assert.ok(withCoach.rating >= sc.rating && withCoach.rating <= 100);
   assert.ok(sc.chem >= 0 && sc.chem <= 100);
 });
 
@@ -149,12 +184,12 @@ test('челлендж-драфт: каждое условие проходим�
     if (seen.has(ch.title)) continue;
     seen.add(ch.title);
     const rules = challengeRules(ch, data.byId);
-    const capOpts = draftDeal(pool, n + 1, 0, 0, {}, 0, rules).opts;
+    const capOpts = draftDeal(pool, n + 1, 0, 0, {}, 'CAPTAIN', rules).opts;
     assert.equal(capOpts.length, DRAFT_OPTIONS, `${ch.title}: вариантов капитана`);
     assert.ok(capOpts.every(id => rules.allow(id)), `${ch.title}: капитан не под условие`);
     for (const seed of [n * 101 + 7, n * 977 + 3]) {
-      const { picks, rerolls } = playDraft(seed, opts => opts[seed % opts.length], [], rules);
-      assert.equal(verify(seed, picks, rerolls, rules), null, ch.title);
+      const { picks, rerolls, order } = playDraft(seed, opts => opts[seed % opts.length], [], rules);
+      assert.equal(verify(seed, picks, order, rerolls, rules), null, ch.title);
       const lu = lineupOf(picks);
       assert.equal(challengeCheck(ch, Object.fromEntries(CHALLENGE_SLOTS.map(k => [k, data.byId[lu[k]]]))), null, ch.title);
     }
@@ -166,10 +201,10 @@ test('челлендж-драфт: пик не под условие недел�
   const ch = CHALLENGES.find(c => c.id === 'red-machine');
   const rules = challengeRules(ch, data.byId);
   const seed = 555;
-  const { picks, rerolls } = playDraft(seed, undefined, [], rules);
-  const key = draftOrder(pool, picks.CAPTAIN).find(k => k.endsWith('-LW'));
+  const { picks, rerolls, order } = playDraft(seed, undefined, [], rules);
+  const key = order.find(k => k.endsWith('-LW'));
   const foreign = pool.players.find(p => p[1] === 'LW' && !challengeAllows(ch, data.byId[p[0]]));
-  assert.match(verify(seed, { ...picks, [key]: foreign[0] }, rerolls, rules), /bad pick/);
+  assert.match(verify(seed, { ...picks, [key]: foreign[0] }, order, rerolls, rules), /bad pick/);
 });
 
 test('у всех карточек есть поля, нужные для сыгранности', () => {
