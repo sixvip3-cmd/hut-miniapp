@@ -8,8 +8,8 @@ import vm from 'node:vm';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { DRAFT_ORDER, DRAFT_REROLLS, draftDeal, verifyDraft } from '../worker/src/draft-core.js';
-import { CHALLENGES, CHALLENGE_SLOTS, challengeAllows, challengeCheck } from '../worker/src/challenge-core.js';
+import { DRAFT_ORDER, DRAFT_REROLLS, DRAFT_RULES, draftDeal, verifyDraft } from '../worker/src/draft-core.js';
+import { CHALLENGES, CHALLENGE_SLOTS, ONE_CLUB, challengeAllows, challengeCheck, challengeNow, challengeRules } from '../worker/src/challenge-core.js';
 import { draftSalAtPicks, scoreLineup } from '../worker/src/score-core.js';
 import { expandPlayers } from '../worker/src/game-data.js';
 
@@ -27,13 +27,13 @@ const pool = data.draftPool;
 const slotsOnly = picks => Object.fromEntries(DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH').map(k => [k, picks[k]]));
 
 // Драфт так, как его играет приложение: бонус Salary на момент пика, вариант из пятёрки, иногда перевыброс.
-function playDraft(seed, choose = opts => opts[0], rerollAt = []) {
+function playDraft(seed, choose = opts => opts[0], rerollAt = [], rules = DRAFT_RULES) {
   const picks = {};
   const rerolls = {};
   DRAFT_ORDER.forEach((key, i) => {
     const sal = draftSalAtPicks(picks, data)[i];
     if (rerollAt.includes(i)) rerolls[i] = 1;
-    const { opts } = draftDeal(pool, seed, i, rerolls[i] || 0, picks, sal);
+    const { opts } = draftDeal(pool, seed, i, rerolls[i] || 0, picks, sal, rules);
     picks[key] = choose(opts, key);
   });
   return { picks, rerolls };
@@ -94,6 +94,35 @@ test('челлендж: состав по условиям проходит, с�
   const spent = CHALLENGE_SLOTS.reduce((t, k) => t + lineup[k].salary, 0);
   assert.match(challengeCheck({ ...ch, cap: spent - 1 }, lineup), /больше лимита/);
   assert.match(challengeCheck(ch, { ...lineup, 'F1-C': lineup['F1-LW'] }), /не своя позиция/);
+});
+
+test('челлендж-драфт: каждое условие недели проходимо, варианты только из подходящих карточек', () => {
+  // 14 условий, а «Один за всех» — для каждого из 30 клубов.
+  const EPOCH = Date.UTC(2026, 10, 2) + 3600e3;
+  const seen = new Set();
+  for (let n = 0; n < CHALLENGES.length * ONE_CLUB.length; n++) {
+    const { ch } = challengeNow(EPOCH + n * 7 * 86400e3);
+    if (seen.has(ch.title)) continue;
+    seen.add(ch.title);
+    const rules = challengeRules(ch, data.byId);
+    for (const seed of [n * 101 + 7, n * 977 + 3]) {
+      const { picks, rerolls } = playDraft(seed, opts => opts[seed % opts.length], [], rules);
+      for (const k of CHALLENGE_SLOTS) assert.ok(picks[k] != null, `${ch.title}: нет вариантов на ${k}`);
+      assert.equal(verifyDraft(pool, seed, picks, rerolls, draftSalAtPicks(picks, data), rules), null, ch.title);
+      assert.equal(challengeCheck(ch, Object.fromEntries(CHALLENGE_SLOTS.map(k => [k, data.byId[picks[k]]]))), null, ch.title);
+    }
+  }
+  assert.equal(seen.size, CHALLENGES.length - 1 + ONE_CLUB.length);
+});
+
+test('челлендж-драфт: пик не под условие недели отклоняется', () => {
+  const ch = CHALLENGES.find(c => c.id === 'red-machine');
+  const rules = challengeRules(ch, data.byId);
+  const seed = 555;
+  const { picks, rerolls } = playDraft(seed, undefined, [], rules);
+  const foreign = pool.players.find(p => p[1] === 'LW' && !challengeAllows(ch, data.byId[p[0]]));
+  const bad = { ...picks, 'F1-LW': foreign[0] };
+  assert.match(verifyDraft(pool, seed, bad, rerolls, draftSalAtPicks(bad, data), rules), /bad pick/);
 });
 
 test('у всех карточек есть поля, нужные для сыгранности', () => {

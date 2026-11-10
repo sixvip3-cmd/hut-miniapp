@@ -82,6 +82,8 @@ CREATE TABLE IF NOT EXISTS drafts (
   id          TEXT PRIMARY KEY,
   user_id     INTEGER NOT NULL,
   day         TEXT NOT NULL,          -- дата по Москве (YYYY-MM-DD): лимит в день и таблица дня
+  mode        TEXT NOT NULL DEFAULT 'draft', -- draft | challenge (челлендж недели — тот же драфт с условием)
+  week        TEXT,                   -- для челленджа: понедельник недели (YYYY-MM-DD)
   seed        INTEGER NOT NULL,
   pool_v      TEXT,                   -- версия пула карточек на момент старта
   status      TEXT NOT NULL,          -- active | done | abandoned
@@ -92,8 +94,8 @@ CREATE TABLE IF NOT EXISTS drafts (
   created_at  INTEGER,
   finished_at INTEGER
 );
-CREATE INDEX IF NOT EXISTS drafts_user ON drafts (user_id, day);
-CREATE INDEX IF NOT EXISTS drafts_score ON drafts (status, day, score);
+CREATE INDEX IF NOT EXISTS drafts_user ON drafts (user_id, mode, day);
+CREATE INDEX IF NOT EXISTS drafts_score ON drafts (status, mode, day, score);
 
 -- Челлендж недели: лучший результат пользователя за неделю (worker/src/challenge.js).
 CREATE TABLE IF NOT EXISTS challenge_entries (

@@ -3,6 +3,8 @@
 // и бонуса Salary на момент пика — поэтому сервер может повторить их и проверить выбор.
 // На каждый пик — 5 случайных вариантов и запасной список (extra): если среди пяти нет ни одной
 // карточки с бонусом в звене, приложение подставляет первую подходящую из запасного списка.
+// Те же правила работают и для челленджа недели: в нём варианты берутся только из карточек,
+// подходящих под условие недели, и лимит зарплаты свой (challenge-core.js → challengeRules).
 // В приложение этот файл попадает как обычный скрипт (scripts/build-site.js убирает export).
 
 export const DRAFT_ORDER = [
@@ -19,6 +21,10 @@ export const DRAFT_REROLLS = 3;
 export const DRAFT_CAP = 80; // базовый лимит суммарной зарплаты 20 игроков, $M (+ бонусы Salary)
 export const DRAFT_SAL_MAX = 40; // больше бонуса Salary в составе не бывает — защита от подмены
 export const DRAFTS_PER_DAY = 5;
+// Правила обычного драфта: все карточки, лимит $80M, бонусы Salary расширяют лимит.
+// rules: { key — имя набора правил (для кэша), cap, salBonus — расширяют ли бонусы Salary лимит,
+//          allow(id) — может ли карточка выпасть (null — любая) }
+export const DRAFT_RULES = { key: 'draft', cap: DRAFT_CAP, salBonus: true, allow: null };
 const EXTRA_PLAYERS = 60;
 const EXTRA_COACHES = 100; // тренеров мало (~40) — в запасе все, чтобы найти того, у кого что-то сработает
 
@@ -41,8 +47,9 @@ export const nameKey = name => String(name).trim().toLowerCase();
 // pool: { players: [[id, pos, salary, ovr, name]], captains: [id], coaches: [id] }
 // picks: { CAPTAIN: id, 'F1-LW': id, ..., COACH: id } — выбранное до этого пика
 // salBonus: бонус Salary состава на момент пика (расширяет лимит, как в игре)
+// rules: DRAFT_RULES или правила челленджа
 // → { opts: 5 случайных, extra: запасной список для подстановки «варианта с бонусом» }
-export function draftDeal(pool, seed, pickIndex, reroll, picks, salBonus = 0) {
+export function draftDeal(pool, seed, pickIndex, reroll, picks, salBonus = 0, rules = DRAFT_RULES) {
   const key = DRAFT_ORDER[pickIndex];
   const rand = rng((seed ^ Math.imul(pickIndex + 1, 0x9e3779b1) ^ Math.imul(reroll + 1, 0x85ebca6b)) >>> 0);
   if (key === 'COACH') return deal(pool.coaches.map(id => ({ id, w: 1 })), rand, EXTRA_COACHES);
@@ -52,33 +59,78 @@ export function draftDeal(pool, seed, pickIndex, reroll, picks, salBonus = 0) {
   if (key === 'CAPTAIN') {
     return deal(pool.captains.filter(id => byId.has(id)).map(id => ({ id, w: weight(byId.get(id)[3]) })), rand, 0);
   }
-  // Оставляем запас на каждый ещё не выбранный слот — по самой дешёвой карточке этой позиции,
-  // поэтому на любом пике есть хотя бы одна карточка, которая укладывается в лимит.
-  const cheapest = minSalaries(pool);
-  const reserve = DRAFT_ORDER.slice(pickIndex + 1).filter(k => k !== 'COACH' && k !== 'CAPTAIN')
-    .reduce((t, k) => t + cheapest(slotPos(k)), 0);
-  const sal = Math.max(0, Math.min(Number(salBonus) || 0, DRAFT_SAL_MAX));
-  const budget = DRAFT_CAP + sal - salarySpent(pool, picks) - reserve + 1e-6;
-  const cands = [];
-  for (const p of bySlot(pool, slotPos(key))) {
-    if (p.salary > budget || taken.has(p.name)) continue;
-    cands.push(p);
+  // Оставляем запас на каждый ещё не выбранный слот, поэтому на любом пике есть хотя бы одна карточка,
+  // которая укладывается в лимит. Сначала запас с походом (7-я по дешевизне карточка позиции) —
+  // так работает обычный драфт. Если с ним не выпадает ничего (узкий пул челленджа, например один клуб),
+  // берём точный запас: самые дешёвые свободные игроки на оставшиеся слоты (с одним игроком про запас,
+  // а если и так ничего — без него).
+  const remaining = DRAFT_ORDER.slice(pickIndex + 1).filter(k => k !== 'COACH' && k !== 'CAPTAIN');
+  const cheapest = minSalaries(pool, rules);
+  const sal = rules.salBonus ? Math.max(0, Math.min(Number(salBonus) || 0, DRAFT_SAL_MAX)) : 0;
+  const room = rules.cap + sal - salarySpent(pool, picks) + 1e-6;
+  const free = bySlot(pool, slotPos(key), rules).filter(p => !taken.has(p.name));
+  const reserves = [
+    () => remaining.reduce((t, k) => t + cheapest(slotPos(k)), 0),
+    () => exactReserve(pool, rules, remaining, taken, 1),
+    () => exactReserve(pool, rules, remaining, taken, 0),
+  ];
+  for (const reserve of reserves) {
+    const budget = room - reserve();
+    const cands = free.filter(p => p.salary <= budget);
+    if (cands.length) return deal(cands, rand, EXTRA_PLAYERS);
   }
-  return deal(cands, rand, EXTRA_PLAYERS);
+  return deal([], rand, EXTRA_PLAYERS);
 }
 
-// Карточки по позициям, с готовыми весами — раскладываем один раз на пул.
-const slotCache = new WeakMap();
-function bySlot(pool, slot) {
-  let m = slotCache.get(pool);
-  if (!m) {
-    m = {};
-    for (const s of ['LW', 'C', 'RW', 'LD', 'RD', 'STARTER']) {
-      m[s] = pool.players.filter(p => accepts(s, p[1])).map(p => ({ id: p[0], salary: p[2], w: weight(p[3]), name: nameKey(p[4]) }));
-    }
-    m.BACKUP = m.STARTER;
-    slotCache.set(pool, m);
+// Точный запас на оставшиеся слоты: по каждой позиции — сумма самых дешёвых ещё свободных игроков.
+// skip — сколько самых дешёвых пропустить (запас на случай, если их возьмут на текущем пике).
+function exactReserve(pool, rules, remaining, taken, skip) {
+  const need = {};
+  for (const k of remaining) { const s = slotPos(k) === 'BACKUP' ? 'STARTER' : slotPos(k); need[s] = (need[s] || 0) + 1; }
+  let total = 0;
+  for (const [slot, n] of Object.entries(need)) {
+    const list = cheapestNames(pool, rules)[slot].filter(([name]) => !taken.has(name));
+    const from = list.length >= n + skip ? skip : 0;
+    if (list.length < n) return Infinity;
+    for (let i = from; i < from + n; i++) total += list[i][1];
   }
+  return total;
+}
+
+// По позициям: [имя, самая низкая зарплата его карточек], по возрастанию зарплаты.
+function cheapestNames(pool, rules) {
+  return cached(pool, rules, 'names', () => {
+    const r = {};
+    for (const slot of ['LW', 'C', 'RW', 'LD', 'RD', 'STARTER']) {
+      const best = new Map();
+      for (const p of bySlot(pool, slot, rules)) if (!best.has(p.name) || p.salary < best.get(p.name)) best.set(p.name, p.salary);
+      r[slot] = [...best].sort((a, b) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1));
+    }
+    return r;
+  });
+}
+
+// Кэш по пулу и набору правил: раскладка карточек и запас бюджета считаются один раз.
+const ruleCache = new WeakMap();
+function cached(pool, rules, name, make) {
+  let byPool = ruleCache.get(pool);
+  if (!byPool) ruleCache.set(pool, (byPool = new Map()));
+  const k = `${rules.key}|${name}`;
+  if (!byPool.has(k)) byPool.set(k, make());
+  return byPool.get(k);
+}
+const allowed = (pool, rules) => cached(pool, rules, 'players', () => (rules.allow ? pool.players.filter(p => rules.allow(p[0])) : pool.players));
+
+// Карточки по позициям, с готовыми весами — раскладываем один раз на пул и правила.
+function bySlot(pool, slot, rules) {
+  const m = cached(pool, rules, 'slots', () => {
+    const r = {};
+    for (const s of ['LW', 'C', 'RW', 'LD', 'RD', 'STARTER']) {
+      r[s] = allowed(pool, rules).filter(p => accepts(s, p[1])).map(p => ({ id: p[0], salary: p[2], w: weight(p[3]), name: nameKey(p[4]) }));
+    }
+    r.BACKUP = r.STARTER;
+    return r;
+  });
   return m[slot];
 }
 
@@ -132,28 +184,24 @@ function sample(cands, rand, n = DRAFT_OPTIONS) {
   return out;
 }
 
-const minCache = new WeakMap();
-function minSalaries(pool) {
-  let f = minCache.get(pool);
-  if (!f) {
+function minSalaries(pool, rules) {
+  return cached(pool, rules, 'min', () => {
     const m = {};
     // Не самая дешёвая карточка, а 7-я по дешевизне среди разных игроков: на одну позицию в составе
     // уходит максимум 4 игрока + капитан, так что хотя бы одна карточка в пределах запаса всегда свободна.
     for (const slot of ['LW', 'C', 'RW', 'LD', 'RD', 'STARTER']) {
       const best = new Map();
-      for (const p of pool.players) {
+      for (const p of allowed(pool, rules)) {
         if (!accepts(slot, p[1])) continue;
         const k = nameKey(p[4]);
         if (!best.has(k) || p[2] < best.get(k)) best.set(k, p[2]);
       }
       const sorted = [...best.values()].sort((a, b) => a - b);
-      m[slot] = sorted[Math.min(6, sorted.length - 1)];
+      m[slot] = sorted.length ? sorted[Math.min(6, sorted.length - 1)] : 0;
     }
     m.BACKUP = m.STARTER;
-    f = slot => m[slot];
-    minCache.set(pool, f);
-  }
-  return f;
+    return slot => m[slot];
+  });
 }
 
 const indexCache = new WeakMap();
@@ -166,7 +214,7 @@ function poolIndex(pool) {
 // Проверка завершённого драфта: каждый выбор — из выпавших вариантов (5 + запасной список),
 // игроки не повторяются, перевыбросов не больше разрешённого, зарплата в лимите.
 // rerolls: { [pickIndex]: сколько раз перевыбрасывали }, salAt: { [pickIndex]: бонус Salary на момент пика }.
-export function verifyDraft(pool, seed, picks, rerolls, salAt = {}) {
+export function verifyDraft(pool, seed, picks, rerolls, salAt = {}, rules = DRAFT_RULES) {
   const used = Object.values(rerolls || {}).reduce((t, n) => t + n, 0);
   if (used > DRAFT_REROLLS) return 'too many rerolls';
   const done = {};
@@ -174,11 +222,11 @@ export function verifyDraft(pool, seed, picks, rerolls, salAt = {}) {
     const key = DRAFT_ORDER[i];
     const choice = picks[key];
     if (choice == null) return `missing ${key}`;
-    const { opts, extra } = draftDeal(pool, seed, i, rerolls?.[i] || 0, done, salAt?.[i] || 0);
+    const { opts, extra } = draftDeal(pool, seed, i, rerolls?.[i] || 0, done, salAt?.[i] || 0, rules);
     if (!opts.includes(choice) && !extra.includes(choice)) return `bad pick ${key}`;
     done[key] = choice;
   }
-  const maxSal = Math.max(0, ...Object.values(salAt || {}).map(v => Math.min(Number(v) || 0, DRAFT_SAL_MAX)));
-  if (salarySpent(pool, picks) > DRAFT_CAP + maxSal + 0.05) return 'salary cap';
+  const maxSal = rules.salBonus ? Math.max(0, ...Object.values(salAt || {}).map(v => Math.min(Number(v) || 0, DRAFT_SAL_MAX))) : 0;
+  if (salarySpent(pool, picks) > rules.cap + maxSal + 0.05) return 'salary cap';
   return null;
 }

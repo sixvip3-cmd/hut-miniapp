@@ -21,7 +21,7 @@ async function draftWinner(env, fromDay, toDay) {
   return env.DB.prepare(
     `SELECT d.user_id, MAX(d.score) AS best, MIN(d.finished_at) AS at, u.first_name, u.username FROM drafts d
      LEFT JOIN users u ON u.user_id = d.user_id
-     WHERE d.status = 'done' AND d.day >= ? AND d.day < ? GROUP BY d.user_id ORDER BY best DESC, at ASC LIMIT 1`,
+     WHERE d.status = 'done' AND d.mode = 'draft' AND d.day >= ? AND d.day < ? GROUP BY d.user_id ORDER BY best DESC, at ASC LIMIT 1`,
   ).bind(fromDay, toDay).first();
 }
 

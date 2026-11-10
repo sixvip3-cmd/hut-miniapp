@@ -118,8 +118,7 @@ function toast(text) {
 const hasCloud = () => !!(tg?.initData && tg.isVersionAtLeast?.('6.9') && tg.CloudStorage);
 
 function saveLineup() {
-  if (state.draft) return; // в драфте свой состав, сохранённый не трогаем (public/draft.js)
-  if (state.challenge) return saveChallengeLocal(); // состав челленджа хранится отдельно
+  if (state.draft) return; // в драфте и челлендже свой состав, сохранённый не трогаем (public/draft.js)
   const data = JSON.stringify({ slots: state.lineup, captain: state.captain, coach: state.coach });
   try { localStorage.setItem(STORAGE_KEY, data); } catch {}
   if (hasCloud()) {
@@ -406,13 +405,13 @@ function renderTeam() {
   }
   state.coachState = co;
   // В челлендже лимит зарплаты фиксированный (условие недели), бонусы Salary его не расширяют.
-  if (state.challenge) { sum.salaryCap = state.challenge.ch.cap; sum.fixedCap = true; }
+  if (state.draft?.mode === 'challenge') { sum.salaryCap = state.draft.ch.cap; sum.fixedCap = true; }
   state.lastSum = sum;
   renderSummary(sum);
   renderStaff(cap, co);
   renderLineup(sum, cap);
   renderChem(sum);
-  if (state.draft || state.challenge) decorateDraftTeam();
+  if (state.draft) decorateDraftTeam();
 }
 
 // ---------- Поиск ----------
@@ -754,9 +753,7 @@ function renderPickerList() {
   const taken = new Set(isCaptain ? [] : lineupPlayers().map(p => p.name.trim().toLowerCase()));
   const fits = isCaptain
     ? () => true
-    : state.challenge // челлендж: только своя позиция и карточки, подходящие под условия недели
-      ? p => slotAccepts(slotOf(state.pickerSlot), p) && !taken.has(p.name.trim().toLowerCase()) && challengeAllows(state.challenge.ch, p)
-      : p => (allPos || slotAccepts(slotOf(state.pickerSlot), p)) && !taken.has(p.name.trim().toLowerCase());
+    : p => (allPos || slotAccepts(slotOf(state.pickerSlot), p)) && !taken.has(p.name.trim().toLowerCase());
   const list = [];
   for (const p of isCaptain ? state.captainCards : state.players) {
     if (fits(p) && matchesQuery(p, q)) list.push(p);

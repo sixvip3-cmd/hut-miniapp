@@ -1,6 +1,9 @@
 // Челлендж недели: общие правила для приложения и сервера (в приложение — как обычный скрипт, без export).
-// Каждую неделю (с понедельника по Москве) — новое условие из списка по кругу. Состав собирается свободно,
-// как в обычной сборке, но только из подходящих карточек и в пределах лимита зарплаты.
+// Каждую неделю (с понедельника по Москве) — новое условие из списка по кругу. Состав собирается как драфт:
+// 22 пика по 1 из 5 случайных вариантов, но варианты — только из карточек, подходящих под условие,
+// и лимит зарплаты — лимит недели (бонусы Salary его не расширяют). В зачёт идёт лучшая попытка недели.
+
+export const CHALLENGE_PER_DAY = 3; // попыток челленджа в день
 
 export const CONFERENCES = {
   east: ['BOSTON BRUINS', 'BUFFALO SABRES', 'DETROIT RED WINGS', 'FLORIDA PANTHERS', 'MONTREAL CANADIENS', 'OTTAWA SENATORS',
@@ -107,4 +110,15 @@ export function challengeCheck(ch, lineup) {
   }
   if (salary > ch.cap + 0.05) return `Зарплата $${salary.toFixed(1)}M — больше лимита $${ch.cap}M`;
   return null;
+}
+
+// Правила генератора вариантов (draft-core.js) для челленджа: только подходящие карточки, лимит недели.
+// byId: { [id]: карточка с клубом, страной, типом, лигой } — у приложения и сервера свой, данные те же.
+export function challengeRules(ch, byId) {
+  return {
+    key: `ch:${ch.id}:${(ch.teams || []).join('|')}`,
+    cap: ch.cap,
+    salBonus: false,
+    allow: id => { const p = byId[id]; return !!p && challengeAllows(ch, p); },
+  };
 }
