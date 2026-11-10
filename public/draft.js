@@ -42,7 +42,7 @@ const loadDraftLocal = mode => store.get(keyOf(mode));
 const clearDraftLocal = mode => store.del(keyOf(mode));
 const isChal = () => state.draft?.mode === 'challenge';
 // Правила генератора вариантов: обычный драфт или челлендж недели (только подходящие карточки, свой лимит).
-const draftRules = () => (isChal() ? challengeRules(state.draft.ch, state.byId) : DRAFT_RULES);
+const draftRules = () => (isChal() ? challengeRules(state.draft.ch, state.byId, state.captains) : DRAFT_RULES);
 
 // ---------- Очки (драфт и челлендж) ----------
 // Считаются общим кодом с сервером (score-core.js): что видит игрок, то и засчитает сервер.

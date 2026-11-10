@@ -108,7 +108,7 @@ async function finish(request, env, uid) {
       return json({ error: 'week_over', left: await leftToday(env, uid, mode) }, 409);
     }
     ch = challengeOfWeek(d.week).ch;
-    rules = challengeRules(ch, data.byId);
+    rules = challengeRules(ch, data.byId, data.captains);
   }
   // Бонус Salary на каждом пике (от него зависит лимит зарплаты и варианты) сервер считает сам.
   const err = verifyDraft(data.draftPool, d.seed, picks, body.rerolls || {}, draftSalAtPicks(picks, data), rules);

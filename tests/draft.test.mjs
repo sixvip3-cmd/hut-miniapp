@@ -104,7 +104,7 @@ test('челлендж-драфт: каждое условие недели пр
     const { ch } = challengeNow(EPOCH + n * 7 * 86400e3);
     if (seen.has(ch.title)) continue;
     seen.add(ch.title);
-    const rules = challengeRules(ch, data.byId);
+    const rules = challengeRules(ch, data.byId, data.captains);
     for (const seed of [n * 101 + 7, n * 977 + 3]) {
       const { picks, rerolls } = playDraft(seed, opts => opts[seed % opts.length], [], rules);
       for (const k of CHALLENGE_SLOTS) assert.ok(picks[k] != null, `${ch.title}: нет вариантов на ${k}`);
@@ -117,7 +117,7 @@ test('челлендж-драфт: каждое условие недели пр
 
 test('челлендж-драфт: пик не под условие недели отклоняется', () => {
   const ch = CHALLENGES.find(c => c.id === 'red-machine');
-  const rules = challengeRules(ch, data.byId);
+  const rules = challengeRules(ch, data.byId, data.captains);
   const seed = 555;
   const { picks, rerolls } = playDraft(seed, undefined, [], rules);
   const foreign = pool.players.find(p => p[1] === 'LW' && !challengeAllows(ch, data.byId[p[0]]));
@@ -141,4 +141,18 @@ test('скрипты приложения собираются без конфл
   const code = files.map(f => fs.readFileSync(path.join(SITE, f), 'utf8')).join('\n;\n');
   assert.doesNotMatch(code, /^\s*(import|export)\s/m);
   assert.doesNotThrow(() => new vm.Script(code, { filename: 'app-bundle.js' }));
+});
+
+test('челлендж-драфт: капитаны — сначала нужные под условие недели', () => {
+  const ch = CHALLENGES.find(c => c.id === 'red-machine');
+  const rules = challengeRules(ch, data.byId, data.captains);
+  const own = pool.captains.filter(id => rules.captainTier(id) === 0); // сами русские
+  const useful = pool.captains.filter(id => rules.captainTier(id) <= 1);
+  assert.ok(own.length > 0 && own.length < 5);
+  for (let seed = 1; seed <= 20; seed++) {
+    const { opts } = draftDeal(pool, seed, 0, 0, {}, 0, rules);
+    assert.equal(opts.length, 5);
+    for (const id of own) assert.ok(opts.includes(id), 'русский капитан всегда в пятёрке');
+    assert.equal(opts.filter(id => rules.captainTier(id) <= 1).length, Math.min(5, useful.length));
+  }
 });

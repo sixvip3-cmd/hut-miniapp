@@ -23,7 +23,8 @@ export const DRAFT_SAL_MAX = 40; // больше бонуса Salary в сост
 export const DRAFTS_PER_DAY = 5;
 // Правила обычного драфта: все карточки, лимит $80M, бонусы Salary расширяют лимит.
 // rules: { key — имя набора правил (для кэша), cap, salBonus — расширяют ли бонусы Salary лимит,
-//          allow(id) — может ли карточка выпасть (null — любая) }
+//          allow(id) — может ли карточка выпасть (null — любая),
+//          captainTier(id) — очередь капитана: 0 выпадает первым, 2 — последним (необязательно) }
 export const DRAFT_RULES = { key: 'draft', cap: DRAFT_CAP, salBonus: true, allow: null };
 const EXTRA_PLAYERS = 60;
 const EXTRA_COACHES = 100; // тренеров мало (~40) — в запасе все, чтобы найти того, у кого что-то сработает
@@ -57,7 +58,15 @@ export function draftDeal(pool, seed, pickIndex, reroll, picks, salBonus = 0, ru
   const byId = poolIndex(pool);
   const taken = new Set(Object.entries(picks).filter(([k]) => k !== 'COACH').map(([, id]) => byId.get(id)?.[4]).filter(Boolean).map(nameKey));
   if (key === 'CAPTAIN') {
-    return deal(pool.captains.filter(id => byId.has(id)).map(id => ({ id, w: weight(byId.get(id)[3]) })), rand, 0);
+    const caps = pool.captains.filter(id => byId.has(id)).map(id => ({ id, w: weight(byId.get(id)[3]) }));
+    if (!rules.captainTier) return deal(caps, rand, 0);
+    // Челлендж: капитаны по очереди приоритета — следующая очередь, только если в предыдущих меньше пяти.
+    const opts = [];
+    for (const tier of [0, 1, 2]) {
+      if (opts.length >= DRAFT_OPTIONS) break;
+      opts.push(...sample(caps.filter(c => rules.captainTier(c.id) === tier), rand, DRAFT_OPTIONS - opts.length));
+    }
+    return { opts, extra: [] };
   }
   // Оставляем запас на каждый ещё не выбранный слот, поэтому на любом пике есть хотя бы одна карточка,
   // которая укладывается в лимит. Сначала запас с походом (7-я по дешевизне карточка позиции) —

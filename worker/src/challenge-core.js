@@ -3,6 +3,8 @@
 // 22 пика по 1 из 5 случайных вариантов, но варианты — только из карточек, подходящих под условие,
 // и лимит зарплаты — лимит недели (бонусы Salary его не расширяют). В зачёт идёт лучшая попытка недели.
 
+import { captainMatch, captainRuleFor } from './chemistry-core.js';
+
 export const CHALLENGE_PER_DAY = 3; // попыток челленджа в день
 
 export const CONFERENCES = {
@@ -113,12 +115,38 @@ export function challengeCheck(ch, lineup) {
 }
 
 // Правила генератора вариантов (draft-core.js) для челленджа: только подходящие карточки, лимит недели.
-// byId: { [id]: карточка с клубом, страной, типом, лигой } — у приложения и сервера свой, данные те же.
-export function challengeRules(ch, byId) {
+// Капитаны выпадают по очереди приоритета (captainTier): 0 — сам подходит под условие, 1 — его бонус собирается
+// из подходящих игроков, 2 — остальные. Следующая очередь — только если в предыдущих меньше пяти.
+// byId: { [id]: карточка с клубом, страной, типом, лигой }; captains — правила капитанов (captains.json).
+export function challengeRules(ch, byId, captains = []) {
+  const key = `ch:${ch.id}:${(ch.teams || []).join('|')}`;
+  const tiers = captainTiers(ch, byId, captains, key);
   return {
-    key: `ch:${ch.id}:${(ch.teams || []).join('|')}`,
+    key,
     cap: ch.cap,
     salBonus: false,
     allow: id => { const p = byId[id]; return !!p && challengeAllows(ch, p); },
+    captainTier: id => tiers.get(id) ?? 2,
   };
+}
+
+// Очередь капитана: 0 — сам подходит под условие; 1 — его бонус можно собрать из подходящих игроков
+// (например, капитан с бонусом за клуб, где играют русские, в «Красной машине»); остальные — 2.
+const fitsCache = new WeakMap();
+function captainTiers(ch, byId, captains, key) {
+  let byKey = fitsCache.get(byId);
+  if (!byKey) fitsCache.set(byId, (byKey = new Map()));
+  if (byKey.has(key)) return byKey.get(key);
+  const eligible = Object.values(byId).filter(p => challengeAllows(ch, p));
+  const tiers = new Map();
+  for (const p of Object.values(byId)) {
+    const rule = captainRuleFor(p, captains);
+    if (!rule) continue;
+    if (challengeAllows(ch, p)) { tiers.set(p.id, 0); continue; }
+    const names = new Set(eligible.filter(q => captainMatch(q, rule)).map(q => q.name.trim().toLowerCase()));
+    names.delete(p.name.trim().toLowerCase());
+    if (names.size >= rule.needed - 1) tiers.set(p.id, 1); // сам капитан тоже считается в «нужно N игроков»
+  }
+  byKey.set(key, tiers);
+  return tiers;
 }

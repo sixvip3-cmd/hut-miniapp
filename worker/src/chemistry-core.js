@@ -207,7 +207,7 @@ function captainTeamKeys(rule) {
 }
 
 // Какому клубу/стране капитана соответствует игрок (или null).
-function captainMatch(p, rule, keys = captainTeamKeys(rule)) {
+export function captainMatch(p, rule, keys = captainTeamKeys(rule)) {
   const team = p.team.trim().toUpperCase();
   if (keys.has(team)) return keys.get(team);
   const nation = p.nation.trim().toUpperCase();
