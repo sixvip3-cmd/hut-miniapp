@@ -76,3 +76,36 @@ CREATE TABLE IF NOT EXISTS blocked (
   user_id INTEGER PRIMARY KEY,
   at      INTEGER
 );
+
+-- Драфт: один ряд — одна попытка (worker/src/draft.js).
+CREATE TABLE IF NOT EXISTS drafts (
+  id          TEXT PRIMARY KEY,
+  user_id     INTEGER NOT NULL,
+  day         TEXT NOT NULL,          -- дата по Москве (YYYY-MM-DD): лимит в день и таблица дня
+  mode        TEXT NOT NULL DEFAULT 'draft', -- draft | challenge (челлендж недели — тот же драфт с условием)
+  week        TEXT,                   -- для челленджа: понедельник недели (YYYY-MM-DD)
+  seed        INTEGER NOT NULL,
+  pool_v      TEXT,                   -- версия пула карточек на момент старта
+  status      TEXT NOT NULL,          -- active | done | abandoned
+  score       INTEGER,
+  breakdown   TEXT,                   -- JSON: из чего сложились очки
+  picks       TEXT,                   -- JSON: слот → id
+  verified    INTEGER DEFAULT 0,      -- 1 — выбор проверен по вариантам
+  created_at  INTEGER,
+  finished_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS drafts_user ON drafts (user_id, mode, day);
+CREATE INDEX IF NOT EXISTS drafts_score ON drafts (status, mode, day, score);
+
+-- Челлендж недели: лучший результат пользователя за неделю (worker/src/challenge.js).
+CREATE TABLE IF NOT EXISTS challenge_entries (
+  user_id    INTEGER NOT NULL,
+  week       TEXT NOT NULL,            -- понедельник недели по Москве (YYYY-MM-DD)
+  ch_id      TEXT NOT NULL,
+  score      INTEGER NOT NULL,
+  breakdown  TEXT,
+  picks      TEXT,
+  updated_at INTEGER,
+  PRIMARY KEY (user_id, week)
+);
+CREATE INDEX IF NOT EXISTS challenge_week ON challenge_entries (week, score);

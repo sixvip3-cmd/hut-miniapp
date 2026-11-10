@@ -118,6 +118,7 @@ function toast(text) {
 const hasCloud = () => !!(tg?.initData && tg.isVersionAtLeast?.('6.9') && tg.CloudStorage);
 
 function saveLineup() {
+  if (state.draft) return; // в драфте и челлендже свой состав, сохранённый не трогаем (public/draft.js)
   const data = JSON.stringify({ slots: state.lineup, captain: state.captain, coach: state.coach });
   try { localStorage.setItem(STORAGE_KEY, data); } catch {}
   if (hasCloud()) {
@@ -203,12 +204,16 @@ function renderSummary(sum) {
   const over = sum.salary > sum.salaryCap;
   $('#sum-salary').textContent = `$${sum.salary.toFixed(1)}M`;
   $('#sum-salary').classList.toggle('over', over);
-  $('#sum-cap').textContent = `/ $${sum.salaryCap}M${sum.boost.SAL ? ` (+${sum.boost.SAL})` : ''}`;
+  $('#sum-cap').textContent = `/ $${sum.salaryCap}M${sum.boost.SAL && !sum.fixedCap ? ` (+${sum.boost.SAL})` : ''}`;
   $('#bar-salary').classList.toggle('over', over);
   $('#bar-salary i').style.width = `${Math.min(100, (sum.salary / sum.salaryCap) * 100)}%`;
 
   $('#sum-ap').textContent = sum.boost.AP;
   $('#bar-ap i').style.width = `${Math.min(100, (sum.boost.AP / CHEMISTRY.maxAp) * 100)}%`;
+  $('#ap-label').textContent = 'Ability points';
+  $('#ap-max').textContent = `/ ${CHEMISTRY.maxAp}`;
+  $('#bar-salary').style.visibility = '';
+  if (state.draft) decorateDraftSummary(); // в драфте и челлендже: химия связей, свой лимит (public/draft.js)
 }
 
 function bonusChips(t) {
@@ -403,11 +408,14 @@ function renderTeam() {
     if (sum.count) sum.ovr = Math.round(sum.ovr + extraOvr / sum.count);
   }
   state.coachState = co;
+  // В челлендже лимит зарплаты фиксированный (условие недели), бонусы Salary его не расширяют.
+  if (state.draft?.mode === 'challenge' && state.draft.ch.cap) { sum.salaryCap = state.draft.ch.cap; sum.fixedCap = true; }
   state.lastSum = sum;
   renderSummary(sum);
   renderStaff(cap, co);
   renderLineup(sum, cap);
   renderChem(sum);
+  if (state.draft) decorateDraftTeam();
 }
 
 // ---------- Поиск ----------
@@ -464,12 +472,15 @@ function openPicker(key) {
   $('#picker-accent').querySelectorAll('input').forEach(i => (i.checked = state.accent.has(i.value)));
   $('#picker-search').value = '';
   $('#picker-allpos').checked = false;
+  $('#picker').classList.toggle('dpick', !!state.draft);
+  $('#picker').classList.remove('peek');
   $('#picker').hidden = false;
   renderPickerList();
-  setTimeout(() => $('#picker-search').focus(), 50);
+  if (!state.draft) setTimeout(() => $('#picker-search').focus(), 50);
 }
 
 function renderCoachList() {
+  if (state.draft) return renderDraftOptions();
   const q = $('#picker-search').value.trim().toLowerCase();
   const list = state.coaches
     .filter(c => !q || `${c.name} ${c.team} ${c.nation} ${coachSummaryText(c)}`.toLowerCase().includes(q))
@@ -739,6 +750,7 @@ function bestLinesHtml(p, slotKey, metric) {
 }
 
 function renderPickerList() {
+  if (state.draft) return renderDraftOptions();
   if (state.pickerSlot === 'COACH') return renderCoachList();
   const isCaptain = state.pickerSlot === 'CAPTAIN';
   const q = $('#picker-search').value.trim();
@@ -1202,6 +1214,7 @@ function showView(btn) {
   tabButtons.forEach(b => b.classList.toggle('active', b === btn));
   document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === `view-${btn.dataset.view}`));
   window.scrollTo(0, 0);
+  if (btn.dataset.view === 'draft') renderDraftHome();
 }
 
 function placeLens(btn) {
@@ -1310,6 +1323,7 @@ $('#lineup').addEventListener('click', e => {
   if (drag.suppressClick) return;
   const card = e.target.closest('[data-slot]');
   if (!card) return;
+  if (state.draft) return draftSlotTap(card.dataset.slot);
   const id = state.lineup[card.dataset.slot];
   if (id) openDetails(id, card.dataset.slot);
   else openPicker(card.dataset.slot);
@@ -1320,6 +1334,7 @@ $('#staff').addEventListener('click', e => {
   const tile = e.target.closest('[data-staff]');
   if (!tile) return;
   const kind = tile.dataset.staff;
+  if (state.draft) return draftSlotTap(kind === 'captain' ? 'CAPTAIN' : 'COACH');
   const isSet = kind === 'captain' ? state.captain : state.coach;
   if (!isSet) return openPicker(kind === 'captain' ? 'CAPTAIN' : 'COACH');
   state.staffOpen = state.staffOpen === kind ? null : kind;
@@ -1345,6 +1360,7 @@ $('#picker-accent').addEventListener('change', e => {
   renderPickerList();
 });
 $('#picker-list').addEventListener('click', e => {
+  if (state.draft) return draftChoose(e);
   const coachRow = e.target.closest('[data-coach]');
   if (coachRow) {
     setCoach(coachRow.dataset.coach);
@@ -1434,11 +1450,14 @@ function invite() {
 }
 
 // ---------- Картинка состава ----------
-const loadImage = src => new Promise(resolve => {
+// Картинка для холста состава. Не дольше 8 секунд: если сеть медленная или картинка зависла,
+// рисуем без неё (плашкой) — иначе «Поделиться составом» ждало бы бесконечно.
+const loadImage = (src, timeoutMs = 8000) => new Promise(resolve => {
   const img = new Image();
+  const timer = setTimeout(() => { img.src = ''; resolve(null); }, timeoutMs);
   img.crossOrigin = 'anonymous';
-  img.onload = () => resolve(img);
-  img.onerror = () => resolve(null);
+  img.onload = () => { clearTimeout(timer); resolve(img); };
+  img.onerror = () => { clearTimeout(timer); resolve(null); };
   img.src = src;
 });
 
@@ -1592,6 +1611,7 @@ function dropTarget(x, y) {
 }
 
 function startHold(e) {
+  if (state.draft) return;
   if (drag.active || $('#lineup').hidden) return;
   const src = dragSource(e.target);
   if (!src) return;

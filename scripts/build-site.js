@@ -15,8 +15,24 @@ fs.rmSync(OUT, { recursive: true, force: true });
 fs.cpSync(PUBLIC, OUT, { recursive: true });
 fs.cpSync(DATA, path.join(OUT, 'data'), { recursive: true });
 
+// Сыгранность, очки, правила драфта и челленджа общие с сервером: сервер пересчитывает очки
+// тем же кодом, что видит пользователь. В приложение — как обычные скрипты (без import/export).
+const SHARED = [
+  ['chemistry-core.js', 'chemistry.js'],
+  ['draft-core.js', 'draft-core.js'],
+  ['challenge-core.js', 'challenge-core.js'],
+  ['score-core.js', 'score-core.js'],
+].map(([src, out]) => {
+  const code = fs.readFileSync(path.join(ROOT, 'worker', 'src', src), 'utf8')
+    .replace(/^import [^;]*;\n/gm, '')
+    .replace(/^export /gm, '');
+  fs.writeFileSync(path.join(OUT, out), code);
+  return code;
+});
+
 const hash = crypto.createHash('sha1');
 for (const f of fs.readdirSync(PUBLIC).sort()) hash.update(fs.readFileSync(path.join(PUBLIC, f)));
+SHARED.forEach(code => hash.update(code));
 const version = hash.digest('hex').slice(0, 10);
 
 const index = path.join(OUT, 'index.html');
@@ -24,6 +40,37 @@ fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replaceAll('__APP_VERSION
 fs.writeFileSync(path.join(OUT, 'version.json'), JSON.stringify({ v: version }));
 
 console.log(`_site собран, версия ${version}`);
+
+// ---------- Пул драфта: все карточки с картинкой, капитаны и тренеры ----------
+// Один и тот же файл читают приложение и сервер — варианты пиков совпадают.
+{
+  const players = JSON.parse(fs.readFileSync(path.join(DATA, 'players.json'), 'utf8'));
+  const captains = JSON.parse(fs.readFileSync(path.join(DATA, 'captains.json'), 'utf8'));
+  const coaches = JSON.parse(fs.readFileSync(path.join(DATA, 'coaches.json'), 'utf8'));
+  const pool = players.filter(p => p.img).sort((a, b) => a.id - b.id); // все карточки с картинкой
+  const captainIds = players.filter(p => p.img && captains.some(r => (r.playerId != null ? Number(r.playerId) === p.id
+    : r.name === p.name.trim().replace(/\s+/g, ' ').toUpperCase() && (r.cardTypes || []).includes(p.card.trim().toUpperCase()))))
+    .map(p => p.id).sort((a, b) => a - b);
+  const draftPool = {
+    v: crypto.createHash('sha1').update(JSON.stringify([pool.map(p => [p.id, p.pos, p.salary, p.ovr]), captainIds, coaches.map(c => c.id)])).digest('hex').slice(0, 10),
+    players: pool.map(p => [p.id, p.pos, p.salary, p.ovr, p.name]),
+    captains: captainIds,
+    coaches: coaches.map(c => c.id).sort(),
+  };
+  fs.writeFileSync(path.join(OUT, 'data', 'draft-pool.json'), JSON.stringify(draftPool));
+  console.log(`драфт: ${draftPool.players.length} карточек, ${draftPool.captains.length} капитанов, ${draftPool.coaches.length} тренеров, версия ${draftPool.v}`);
+
+  // Для проверки челленджа на сервере: все карточки (позиция, зарплата, рейтинг, команда, страна, имя).
+  const teams = [...new Set(players.map(p => p.team))].sort();
+  const nations = [...new Set(players.map(p => p.nation))].sort();
+  const cards = [...new Set(players.map(p => p.card))].sort();
+  const leagues = [...new Set(players.map(p => p.league))].sort();
+  const idx = list => new Map(list.map((v, i) => [v, i]));
+  const ti = idx(teams), ni = idx(nations), ci = idx(cards), li = idx(leagues);
+  const chalPool = { teams, nations, cards, leagues,
+    players: players.map(p => [p.id, p.pos, p.salary, p.ovr, ti.get(p.team), ni.get(p.nation), p.name, ci.get(p.card), li.get(p.league)]) };
+  fs.writeFileSync(path.join(OUT, 'data', 'chal-pool.json'), JSON.stringify(chalPool));
+}
 
 // ---------- Индекс для инлайн-поиска бота ----------
 // data/search/<буква>.json — карточки, у которых какое-то слово имени начинается с этой буквы;

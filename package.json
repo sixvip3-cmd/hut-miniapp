@@ -7,7 +7,9 @@
     "sync": "node scripts/sync-hutdb.js",
     "build": "node scripts/build-site.js",
     "dev": "npm run build && wrangler dev",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "test": "node scripts/build-site.js && node --test tests/*.test.mjs",
+    "dev:open": "node scripts/dev-open.js"
   },
   "devDependencies": {
     "playwright": "1.56.1",

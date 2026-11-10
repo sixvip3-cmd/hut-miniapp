@@ -16,6 +16,10 @@
 
 Настройки в `wrangler.toml` / Variables: `PRICE_STARS`, `TRIAL_DAYS`, `REF_BONUS_DAYS`, `ADMIN_IDS`, `SUPPORT_CONTACT`, `BOT_USERNAME`.
 
+## Драфт (тест)
+
+Вкладка «Драфт» с плашкой «ТЕСТ»: драфт из случайных карточек (22 пика по 1 из 5, химия клуб/страна, без лимита зарплаты, 5 в день) и челлендж недели (тот же драфт по условию недели, 3 попытки в день). Очки и каждый пик проверяет сервер. Награды доступом за №1 недели/месяца выключены, пока переменная `DRAFT_REWARDS` не равна `1`.
+
 ## Как устроено
 
 ```
@@ -53,4 +57,9 @@ cp .dev.vars.example .dev.vars   # BOT_TOKEN и др.
 npx wrangler d1 execute hut-builder --local --file worker/schema.sql
 npm run dev                      # http://127.0.0.1:8787
 npm run sync                     # свежие данные с hutdb (нужен Chrome/Chromium)
+npm test                         # тесты драфта и челленджа
 ```
+
+Проверить в обычном браузере, без Telegram: в `.dev.vars` добавить `TELEGRAM_API_BASE=http://127.0.0.1:8790`
+(и при желании `ADMIN_IDS=1001` — без лимита драфтов), запустить `npm run dev`, а во втором терминале
+`npm run dev:open` и открыть http://127.0.0.1:8790/dev — вход тестовым пользователем с подпиской.

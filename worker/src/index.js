@@ -9,6 +9,7 @@
 //   GET  /s/<токен>/...        — приложение и данные (только по действующему токену)
 //   GET  /s/<токен>/api/me     — подписка и реферальная ссылка для приложения
 //   POST /s/<токен>/api/share  — картинка состава → готовое сообщение для пересылки
+//   /s/<токен>/api/draft/...   — драфт: старт, результат, таблица лидеров (worker/src/draft.js)
 //   POST /telegram/webhook     — апдейты бота (worker/src/bot.js)
 //   POST /admin/setup          — вебхук, кнопка меню, команды (ключ из токена бота)
 //   cron каждые 30 минут       — напоминания и дайджест (worker/src/cron.js)
@@ -16,6 +17,8 @@
 
 import { bot, derivedSecret, signSession, validateInitData, verifySession } from './telegram.js';
 import { loaderPage } from './loader.js';
+import { handleDraft } from './draft.js';
+import { handleChallenge } from './challenge.js';
 import { privacyPage, supportPage, termsPage } from './legal.js';
 import { ADMIN_COMMANDS, BOT_COMMANDS, botUsername, handleUpdate, refLink } from './bot.js';
 import { runScheduled, saveOrigin } from './cron.js';
@@ -81,6 +84,8 @@ async function handleApp(request, env, url) {
   }
   if (!m[2]) return Response.redirect(`${url.origin}/s/${m[1]}/${url.search}`, 302);
   if (m[2] === '/api/me') return handleMe(env, session.uid);
+  if (m[2].startsWith('/api/draft/')) return handleDraft(request, env, session.uid, m[2]);
+  if (m[2].startsWith('/api/challenge/')) return handleChallenge(request, env, session.uid, m[2]);
   if (m[2] === '/api/share' && request.method === 'POST') return handleShare(request, env, session.uid, url.origin);
 
   const assetUrl = new URL(m[2], url.origin); // '/' → index.html (так раздаёт ASSETS)

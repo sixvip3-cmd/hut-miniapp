@@ -63,6 +63,10 @@ jobs:
           git commit -m "Sync NHL Fantasy stats" || echo "no changes"
           git pull --rebase -q && git push
 
+      # Тесты драфта/челленджа и сборки: если упали — не деплоим (job завершится ошибкой).
+      - name: Tests
+        run: npm test
+
       - name: Check Cloudflare settings
         id: cf
         run: |
