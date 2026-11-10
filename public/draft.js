@@ -3,7 +3,8 @@
 // откладывается (state.savedLineup) и возвращается при выходе.
 //   Драфт: капитан → 20 игроков → тренер; на пик 5 вариантов (draft-core.js, общий с сервером),
 //          среди них всегда есть хотя бы один «с бонусом». Лимита зарплаты нет, 3 перевыброса.
-//   Химия — связи соседей, как в драфте FIFA (score-core.js): зелёная — один клуб, жёлтая — одна страна.
+//   Химия — как в FC (score-core.js): у игрока 0–3 по числу игроков его клуба и страны в составе;
+//   линии между соседями показывают, откуда она: зелёная — один клуб, жёлтая — одна страна, красная — ничего.
 //   Варианты — лентой; удержание карточки показывает её связи в составе до выбора.
 //   Челлендж: тот же драфт (state.draft.mode = 'challenge'), но варианты только из карточек под условие
 //          недели и лимит зарплаты недели (challenge-core.js → challengeRules). В зачёт — лучшая попытка недели.
@@ -135,7 +136,7 @@ function decorateDraftTeam() {
       <div class="dsc"><b>${sc.total}</b><small>очков</small></div></div>
     ${isChal() ? `<div class="rules">${d.ch.rules.map(r => `<span>${esc(r)}</span>`).join('')}</div>` : ''}
     <div class="dprog"><i style="width:${(d.pick / DRAFT_ORDER.length) * 100}%"></i></div>
-    <div class="dmeta"><span>${money}</span><span>🔗 <b>${sc.links.total}</b>/${sc.links.max}</span>
+    <div class="dmeta"><span>${money}</span><span>⚗️ <b>${sc.squad.total}</b>/${sc.squad.max}</span>
       <span>🔄 <b>${d.rerollsLeft}</b></span>
       ${key ? '<button class="dnext" data-draft="open">Выбрать ›</button>' : ''}</div>`;
   const mark = (k, cls) => {
@@ -153,6 +154,16 @@ function decorateDraftTeam() {
 // Связи соседей поверх состава: зелёная — один клуб, жёлтая — одна страна, красная — нет связи.
 function drawDraftLinks() {
   const L = lineupLinks(state.lineup, state.byId);
+  const C = squadChem(state.lineup, state.byId);
+  for (const [k, v] of Object.entries(C.bySlot)) {
+    const card = document.querySelector(`#lineup [data-slot="${k}"]`);
+    if (!card) continue;
+    const dots = document.createElement('span');
+    dots.className = `dchem c${v.chem}`;
+    dots.title = `Химия ${v.chem}/3 · клуб: ${v.clubN} в составе (+${v.club}) · страна: ${v.nationN} (+${v.nation})`;
+    dots.innerHTML = '<i></i><i></i><i></i>';
+    card.append(dots);
+  }
   const pv = state.draftPreview?.key;
   const title = { g: 'Один клуб · +3', y: 'Одна страна · +1', r: 'Нет связи' };
   for (const line of LINES) {
@@ -167,7 +178,7 @@ function drawDraftLinks() {
       slots.append(bar);
     });
     const chips = el.querySelector('.line-head .chips');
-    if (chips) chips.innerHTML = `<span class="lchem${L.byLine[line.id] ? ' on' : ''}">химия +${L.byLine[line.id]}</span>`;
+    if (chips) chips.innerHTML = `<span class="lchem${C.byLine[line.id] ? ' on' : ''}">химия ${C.byLine[line.id]}/${line.slots.length * 3}</span>`;
   }
 }
 
@@ -190,10 +201,10 @@ function decorateDraftSummary() {
     $('#sum-salary').classList.remove('over');
     $('#bar-salary').style.visibility = 'hidden';
   }
-  $('#ap-label').textContent = 'Химия связей';
-  $('#sum-ap').textContent = sc.links.total;
-  $('#ap-max').textContent = `/ ${sc.links.max}`;
-  $('#bar-ap i').style.width = `${Math.min(100, (sc.links.total / sc.links.max) * 100)}%`;
+  $('#ap-label').textContent = 'Химия';
+  $('#sum-ap').textContent = sc.squad.total;
+  $('#ap-max').textContent = `/ ${sc.squad.max}`;
+  $('#bar-ap i').style.width = `${Math.min(100, (sc.squad.total / sc.squad.max) * 100)}%`;
 }
 
 $('#draft-bar').addEventListener('click', e => {
@@ -211,7 +222,7 @@ function draftSlotTap(key) {
   toast(now ? `Сейчас пик: ${DRAFT_SHORT(now)}` : 'Пики закончились');
 }
 
-// Даёт ли вариант бонус: игрок — зелёная или жёлтая связь с соседом либо +1 к капитану; тренер — хоть одна комбинация.
+// Даёт ли вариант бонус: игрок — прибавляет химии составу либо +1 к капитану; тренер — хоть одна комбинация.
 function draftHasBonus(key, id) {
   if (key === 'CAPTAIN') return true;
   if (key === 'COACH') { const c = coachById(id); return !!c && coachStatus(c, state.lineup, state.byId).activeCount > 0; }
@@ -220,7 +231,13 @@ function draftHasBonus(key, id) {
   const cap = state.byId[state.captain];
   const rule = cap && captainRuleFor(cap, state.captains);
   if (rule && captainMatch(p, rule) && !captainStatus(cap, lineupPlayers(), state.captains).met) return true;
-  return slotNeighbours(key).some(k => ['g', 'y'].includes(linkKind(p, state.byId[state.lineup[k]])));
+  return chemGain(key, id) > 0;
+}
+
+// На сколько вырастет химия состава, если поставить карточку id в слот key.
+function chemGain(key, id) {
+  const before = squadChem(state.lineup, state.byId).total;
+  return squadChem({ ...state.lineup, [key]: id }, state.byId).total - before;
 }
 
 function dealDraft() {
@@ -277,10 +294,11 @@ function renderDraftOptions() {
     const cap = state.byId[state.captain];
     const rule = cap && captainRuleFor(cap, state.captains);
     const have = rule ? captainStatus(cap, lineupPlayers(), state.captains).count : 0;
-    const mates = slotNeighbours(key).map(k => state.byId[state.lineup[k]]).filter(Boolean);
-    const word = { g: 'клуб', y: 'страна', r: 'нет связи' };
     cards = d.options.map(id => state.byId[id]).filter(Boolean).map(p => {
-      const links = mates.length ? mates.map(m => { const k = linkKind(p, m); return chip(k, `${word[k]} · ${esc(surname(m.name))}`); }).join('') : chip('z', 'соседей пока нет');
+      const gain = chemGain(key, p.id);
+      const own = squadChem({ ...state.lineup, [key]: p.id }, state.byId).bySlot[key];
+      const links = chip(gain > 0 ? 'g' : 'z', `химия +${gain}`)
+        + chip(own.club ? 'g' : 'z', `клуб ×${own.clubN}`) + chip(own.nation ? 'y' : 'z', `страна ×${own.nationN}`);
       const capTxt = rule && captainMatch(p, rule) && have < rule.needed ? chip('cap', `👑 +1 к капитану · ${have + 1}/${rule.needed}`) : '';
       return `<button class="dopt" type="button" data-id="${p.id}">${img(p)}<b class="dn">${esc(p.name)}</b>
         <small class="dt2">${flag(p.nation)} ${esc(p.team)} · $${p.salary}M</small><span class="dchips">${links}${capTxt}</span></button>`;
@@ -306,11 +324,11 @@ function startDraftPreview(opt) {
   else state.lineup[key] = id;
   const after = draftScore();
   const name = key === 'COACH' ? coachById(id)?.name : state.byId[id]?.name;
-  const diff = after.links.total - before.links.total;
+  const diff = after.squad.total - before.squad.total;
   $('#picker').classList.add('peek');
   const head = $('#picker-list .dpick-head');
   if (head) {
-    head.innerHTML = `<span><b>${esc(name || '')}</b> · химия ${before.links.total} → <b class="${diff > 0 ? 'up' : ''}">${after.links.total}</b>${diff > 0 ? ` (+${diff})` : ''}
+    head.innerHTML = `<span><b>${esc(name || '')}</b> · химия ${before.squad.total} → <b class="${diff > 0 ? 'up' : ''}">${after.squad.total}</b>${diff > 0 ? ` (+${diff})` : ''}
       · очки ${before.total} → <b>${after.total}</b></span><span>отпусти — вернёмся</span>`;
   }
   renderTeam();
@@ -451,7 +469,7 @@ function renderDraftResult() {
         <span class="${r.coachInfo?.active ? 'ok' : 'muted'}">${r.coachInfo ? `${r.coachInfo.active}/${r.coachInfo.of} комбинаций` : ''}</span></div></div></section>
     <section class="glass brk"><div class="dk">ИЗ ЧЕГО СЛОЖИЛОСЬ</div>
       <div class="br"><span>Средний OVR карточек</span><em>${r.avgOvr}</em><b>${r.base}</b></div>
-      <div class="br"><span>Химия связей</span><em class="chipline">${r.links ? `<i class="lk g">${r.links.g} клуб</i><i class="lk y">${r.links.y} страна</i> ${r.links.total}/${r.links.max}` : '—'}</em><b>+${r.chem}</b></div>
+      <div class="br"><span>Химия</span><em class="chipline">${r.squad ? `<i class="lk g">${r.squad.full} с 3/3</i> ${r.squad.total}/${r.squad.max}` : '—'}</em><b>+${r.chem}</b></div>
       <div class="br"><span>Капитан</span><em>${r.captain ? `+${r.captain}` : 'бонус не собран'}</em><b>+${r.captain}</b></div>
       <div class="br"><span>Тренер</span><em class="chipline">${chips(r.coachInfo?.total) || '—'}</em><b>+${r.coach}</b></div>
       <div class="br tot"><span>Итого</span><em></em><b>${r.total}</b></div></section>
@@ -491,18 +509,18 @@ async function renderDraftHome() {
       <div class="steps"><div class="st"><span class="ic">👑</span><b>Капитан</b><small>пик 1</small></div><i class="ar">→</i>
         <div class="st"><span class="ic">🏒</span><b>20 игроков</b><small>пики 2–21</small></div><i class="ar">→</i>
         <div class="st"><span class="ic">📋</span><b>Тренер</b><small>пик 22</small></div></div>
-      <div class="rules"><span>🃏 все ${state.draftPool ? state.draftPool.players.length.toLocaleString('ru-RU') : '8 000+'} карточек базы</span><span>🎴 1 из 5 на пик</span><span>✨ всегда есть вариант с бонусом</span><span>🔄 ${DRAFT_REROLLS} перевыброса</span><span>💸 без лимита зарплаты</span><span>🔗 химия: клуб +3 · страна +1</span></div>
+      <div class="rules"><span>🃏 все ${state.draftPool ? state.draftPool.players.length.toLocaleString('ru-RU') : '8 000+'} карточек базы</span><span>🎴 1 из 5 на пик</span><span>✨ всегда есть вариант с бонусом</span><span>🔄 ${DRAFT_REROLLS} перевыброса</span><span>💸 без лимита зарплаты</span><span>⚗️ химия: клуб и страна, до 3 у игрока</span></div>
       ${b.active ? `<div class="resume"><div><b>Незаконченный драфт</b><small>${resumePick ? `пик ${resumePick + 1} из ${DRAFT_ORDER.length}` : 'можно продолжить'}</small></div>
         <button class="ghostbtn sm" data-draft-act="resume">Продолжить</button></div>` : ''}
       <div class="meta3"><div><b>${b.today.best || '—'}</b><small>лучший сегодня</small></div><div><b>${b.me && state.draftPeriod === 'day' ? `#${b.me.place}` : '—'}</b><small>место за день</small></div>
         <div><b>${left}</b><small>драфтов осталось</small></div></div>
       <button class="btn-primary" data-draft-act="new" ${b.left <= 0 ? 'disabled' : ''}>${b.left <= 0 ? 'Драфты на сегодня закончились' : b.active ? 'Начать новый драфт' : 'Начать драфт'}</button>
-      <p class="hint dscore-hint">Очки: 4 × средний OVR карточек + 2 × химия связей + бонусы капитана и тренера.<br>🏆 №1 недели — месяц доступа, №1 месяца — год.</p></section>
+      <p class="hint dscore-hint">Очки: 4 × средний OVR карточек + 2 × химия (до 60) + бонусы капитана и тренера.<br>🏆 №1 недели — месяц доступа, №1 месяца — год.</p></section>
 
     <section class="dchal glass"><div class="dk">ЧЕЛЛЕНДЖ НЕДЕЛИ <span class="dk-r">${untilText(c.endsAt)}</span></div>
       <h2>${esc(c.ch.title)}</h2>
       <p class="dsub">Драфт по условию недели: на каждый пик 1 из 5 карточек, подходящих под условие</p>
-      <div class="rules">${c.ch.rules.map(r => `<span>${esc(r)}</span>`).join('')}<span>🎴 1 из 5 на пик</span><span>🔗 химия связей</span></div>
+      <div class="rules">${c.ch.rules.map(r => `<span>${esc(r)}</span>`).join('')}<span>🎴 1 из 5 на пик</span><span>⚗️ химия клуб/страна</span></div>
       ${c.active ? `<div class="resume"><div><b>Незаконченная попытка</b><small>${chResume ? `пик ${chResume + 1} из ${DRAFT_ORDER.length}` : 'можно продолжить'}</small></div>
         <button class="ghostbtn sm" data-draft-act="chal-resume">Продолжить</button></div>` : ''}
       <div class="chalfoot"><span>${c.me ? `Ваш лучший: <b>${c.me.score}</b> · <b>#${c.me.place}</b> из ${c.players}` : `Участников: ${c.players}`}</span><span class="prize">🎁 месяц доступа</span></div>

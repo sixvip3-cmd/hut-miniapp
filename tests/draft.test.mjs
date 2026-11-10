@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { DRAFT_ORDER, DRAFT_REROLLS, DRAFT_RULES, draftDeal, verifyDraft } from '../worker/src/draft-core.js';
 import { CHALLENGES, CHALLENGE_SLOTS, ONE_CLUB, challengeAllows, challengeCheck, challengeNow, challengeRules } from '../worker/src/challenge-core.js';
-import { LINK_SCORE, draftSalAtPicks, lineupLinks, linkKind, scoreLineup } from '../worker/src/score-core.js';
+import { LINK_SCORE, draftSalAtPicks, lineupLinks, linkKind, scoreLineup, squadChem } from '../worker/src/score-core.js';
 import { expandPlayers } from '../worker/src/game-data.js';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -24,6 +24,7 @@ const data = {
   ...expandPlayers(read('chal-pool.json')),
 };
 const pool = data.draftPool;
+const LINES_KEYS = () => DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH');
 const slotsOnly = picks => Object.fromEntries(DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH').map(k => [k, picks[k]]));
 
 // Драфт так, как его играет приложение: бонус Salary на момент пика, вариант из пятёрки, иногда перевыброс.
@@ -157,19 +158,44 @@ test('челлендж-драфт: капитаны — сначала нужн�
   }
 });
 
-test('химия связей: клуб — зелёная, страна — жёлтая, иначе красная; очки = 2 × химия', () => {
+test('линии: клуб — зелёная, страна — жёлтая, иначе красная', () => {
   const a = { team: 'Edmonton Oilers', nation: 'Canada' };
   assert.equal(linkKind(a, { team: 'EDMONTON OILERS ALUMNI', nation: 'USA' }), 'g'); // легенда клуба — тот же клуб
   assert.equal(linkKind(a, { team: 'Toronto Maple Leafs', nation: 'Canada' }), 'y');
   assert.equal(linkKind(a, { team: 'Toronto Maple Leafs', nation: 'Sweden' }), 'r');
   assert.equal(linkKind(a, null), null);
+  assert.equal(lineupLinks({}, {}).links.length, 12);
+});
+
+test('химия как в FC: клуб 2/4/7 → +1/+2/+3, страна 2/5/8 → +1/+2/+3, не больше 3 у игрока', () => {
+  // Синтетический состав: 7 игроков одного клуба (Канада), 8 шведов из разных клубов, остальные — по одному.
+  const slots = LINES_KEYS();
+  const byId = {};
+  const lineup = {};
+  slots.forEach((k, i) => {
+    const p = i < 7 ? { team: 'Edmonton Oilers', nation: 'Canada' }
+      : i < 15 ? { team: `Club ${i}`, nation: 'Sweden' }
+        : { team: `Solo ${i}`, nation: `Land ${i}` };
+    byId[i + 1] = { id: i + 1, ...p, ovr: 80 };
+    lineup[k] = i + 1;
+  });
+  const C = squadChem(lineup, byId);
+  const at = i => C.bySlot[slots[i]];
+  assert.deepEqual([at(0).club, at(0).nation, at(0).chem], [3, 2, 3]); // клуб ×7 → +3, Канада ×7 → +2, итог 3
+  assert.deepEqual([at(7).club, at(7).nation, at(7).chem], [0, 3, 3]); // швед ×8 → +3
+  assert.deepEqual([at(16).club, at(16).nation, at(16).chem], [0, 0, 0]); // никого своего
+  assert.equal(C.max, 60);
+  assert.equal(C.total, 7 * 3 + 8 * 3);
+  // Пороги: 4 игрока клуба → +2, 5 одной страны → +2, 2 → +1
+  const four = { ...lineup };
+  const byId2 = { ...byId };
+  slots.forEach((k, i) => { if (i >= 4 && i < 7) byId2[i + 1] = { ...byId[i + 1], team: `Other ${i}`, nation: `Far ${i}` }; });
+  const C2 = squadChem(four, byId2);
+  assert.deepEqual([C2.bySlot[slots[0]].club, C2.bySlot[slots[0]].nation], [2, 1]); // клуб ×4 → +2, Канада ×4 → +1
+  // Очки: 2 × химия
   const { picks } = playDraft(77);
-  const lineup = slotsOnly(picks);
-  const L = lineupLinks(lineup, data.byId);
-  assert.equal(L.max, 36); // 12 пар соседей × 3
-  assert.equal(L.g + L.y + L.r, 12);
-  assert.equal(L.total, L.g * 3 + L.y);
-  assert.equal(scoreLineup(lineup, picks.CAPTAIN, picks.COACH, data).chem, L.total * LINK_SCORE);
+  const lu = slotsOnly(picks);
+  assert.equal(scoreLineup(lu, picks.CAPTAIN, picks.COACH, data).chem, squadChem(lu, data.byId).total * LINK_SCORE);
 });
 
 test('обычный драфт без лимита зарплаты: сильные карточки выпадают и в последних пиках', () => {

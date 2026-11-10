@@ -122,7 +122,7 @@ async function finish(request, env, uid) {
   const lineup = Object.fromEntries(DRAFT_ORDER.filter(k => k !== 'CAPTAIN' && k !== 'COACH').map(k => [k, picks[k]]));
   const sc = scoreLineup(lineup, picks.CAPTAIN, picks.COACH, data);
   const score = sc.total;
-  const breakdown = { base: sc.base, avgOvr: sc.avgOvr, chem: sc.chem, links: sc.links, captain: sc.captain, coach: sc.coach,
+  const breakdown = { base: sc.base, avgOvr: sc.avgOvr, chem: sc.chem, squad: sc.squad, captain: sc.captain, coach: sc.coach,
     cap: Number.isFinite(rules.cap) ? rules.cap : null };
   await env.DB.prepare("UPDATE drafts SET status = 'done', score = ?, breakdown = ?, picks = ?, verified = 1, finished_at = ? WHERE id = ?")
     .bind(score, JSON.stringify(breakdown), JSON.stringify(picks), now(), d.id).run();

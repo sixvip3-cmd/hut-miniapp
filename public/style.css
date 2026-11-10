@@ -784,3 +784,11 @@ body.draft-mode .slots.linked { position: relative; }
 .brk .lk.y { color: #fbbf24; background: rgba(251,191,36,.14); }
 
 @media (prefers-reduced-motion: reduce) { .dlink.pv { animation: none; } #picker .sheet-body, .dopt .dimg { transition: none; } }
+
+/* Химия игрока (0–3) на карточке в драфте */
+.dchem { position: absolute; left: 50%; bottom: 5px; transform: translateX(-50%); z-index: 4; display: flex; gap: 3px;
+  padding: 3px 5px; border-radius: 8px; background: rgba(3,10,28,.78); pointer-events: none; }
+.dchem i { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.18); }
+.dchem.c1 i:nth-child(-n+1), .dchem.c2 i:nth-child(-n+2), .dchem.c3 i { background: #34d399; box-shadow: 0 0 6px rgba(52,211,153,.8); }
+.dchem.c1 i:nth-child(-n+1), .dchem.c2 i:nth-child(-n+2) { background: #fbbf24; box-shadow: 0 0 6px rgba(251,191,36,.7); }
+.dchem.c0 { outline: 1px solid rgba(248,113,113,.6); }
