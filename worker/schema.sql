@@ -121,3 +121,9 @@ INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_reset_v2', 'done');
 -- Один раз помечаем их «expired» (попытку не тратит), законченные результаты не трогаем.
 UPDATE drafts SET status = 'expired' WHERE status = 'active' AND NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_options4');
 INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_options4', 'done');
+
+-- Переход на оценку «рейтинг + сыгранность (до 200)», сыгранность с партнёрами по звену и выбор позиции:
+-- старые результаты посчитаны по другим правилам — один раз очищаем тестовые таблицы (отметка draft_reset_v3).
+DELETE FROM drafts WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v3');
+DELETE FROM challenge_entries WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v3');
+INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_reset_v3', 'done');

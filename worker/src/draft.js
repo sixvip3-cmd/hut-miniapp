@@ -1,14 +1,15 @@
 // Драфт и челлендж недели на сервере: старт (лимит в день), проверка результата, таблица лидеров драфта.
 //   POST /s/<токен>/api/draft/start   { fresh?, mode? } → { id, seed, poolV, left, ch?, week? }
 //        mode: 'draft' (по умолчанию) или 'challenge'; продолжает незаконченную попытку этого режима, если она есть
-//   POST /s/<токен>/api/draft/finish  { id, picks, rerolls } → { score, breakdown, place, left, best? }
+//   POST /s/<токен>/api/draft/finish  { id, picks, order, rerolls, lineup } → { score, breakdown, place, left, best? }
+//        order — позиции в порядке выбора; lineup — итоговая расстановка (после перестановок игроков одной позиции)
 //   GET  /s/<токен>/api/draft/board?period=day|week|all → { top, me, left }
-// Челлендж — тот же драфт (21 пик по 1 из 4), но варианты только из карточек под условие недели
-// и лимит зарплаты недели. Лучшая попытка недели идёт в таблицу челленджа (challenge_entries).
+// Челлендж — тот же драфт (21 пик по 1 из 4), но варианты только из карточек под условие недели.
+// Лучшая попытка недели идёт в таблицу челленджа (challenge_entries).
 // Варианты пиков сервер повторяет тем же генератором (draft-core.js) по пулу карточек из сборки,
-// очки считает сам (score-core.js).
+// рейтинг и сыгранность считает сам (score-core.js); итог = рейтинг + сыгранность (до 200).
 
-import { DRAFT_CAP, DRAFT_RULES, DRAFTS_PER_DAY, captainSlotFor, draftOrder, verifyDraft } from './draft-core.js';
+import { DRAFT_CAP, DRAFT_RULES, DRAFTS_PER_DAY, DRAFT_SLOTS, checkArrangement, verifyDraft } from './draft-core.js';
 import { CHALLENGE_PER_DAY, CHALLENGE_SLOTS, challengeCheck, challengeNow, challengeRules } from './challenge-core.js';
 import { draftBonus, scoreLineup } from './score-core.js';
 import { gameData } from './game-data.js';
@@ -92,9 +93,10 @@ async function finish(request, env, uid) {
   if (d.status !== 'active') return json({ error: 'abandoned' }, 409);
 
   const data = await gameData(env);
-  // Капитан стоит в составе на своей позиции: его слот не разыгрывается, порядок пиков зависит от него.
-  const picks = { CAPTAIN: Number(body.picks.CAPTAIN) };
-  for (const k of draftOrder(data.draftPool, picks.CAPTAIN)) picks[k] = k === 'COACH' ? String(body.picks[k] ?? '') : Number(body.picks[k]);
+  // Пики в порядке выбора: первым капитан, дальше позиции, которые выбирал игрок.
+  const order = Array.isArray(body.order) ? body.order.map(String).slice(0, 30) : [];
+  const picks = {};
+  for (const k of order) picks[k] = k === 'COACH' ? String(body.picks[k] ?? '') : Number(body.picks[k]);
   // Результат принимаем только проверенным: каждый выбор — из выпавших вариантов того же пула.
   if (data.draftPool.v !== d.pool_v) {
     await expire(env, d.id);
@@ -111,23 +113,25 @@ async function finish(request, env, uid) {
     ch = challengeOfWeek(d.week).ch;
     rules = challengeRules(ch, data.byId);
   }
-  const err = verifyDraft(data.draftPool, d.seed, picks, body.rerolls || {}, {}, rules, draftBonus(data));
+  const err = verifyDraft(data.draftPool, d.seed, picks, order, body.rerolls || {}, rules, draftBonus(data));
   if (err) return json({ error: 'invalid', reason: err }, 422);
-  // Состав: 19 разыгранных слотов + капитан в своём слоте.
-  const capSlot = captainSlotFor(data.byId[picks.CAPTAIN]?.pos);
-  const lineup = Object.fromEntries(CHALLENGE_SLOTS.map(k => [k, k === capSlot ? picks.CAPTAIN : picks[k]]));
+  // Итоговая расстановка: те же игроки, каждый на своей позиции (перестановки — только внутри позиции).
+  const lineup = Object.fromEntries(DRAFT_SLOTS.map(k => [k, Number(body.lineup?.[k])]));
+  const arrErr = checkArrangement(data.draftPool, picks, lineup);
+  if (arrErr) return json({ error: 'invalid', reason: arrErr }, 422);
   if (ch) {
     const chErr = challengeCheck(ch, Object.fromEntries(CHALLENGE_SLOTS.map(k => [k, data.byId[lineup[k]]])));
     if (chErr) return json({ error: 'invalid', reason: chErr }, 422);
   }
 
-  // Очки сервер считает сам — тем же кодом, что приложение (score-core.js).
+  // Рейтинг и сыгранность сервер считает сам — тем же кодом, что приложение (score-core.js).
   const sc = scoreLineup(lineup, picks.CAPTAIN, picks.COACH, data);
   const score = sc.total;
-  const breakdown = { base: sc.base, avgOvr: sc.avgOvr, chem: sc.chem, squad: sc.squad, captain: sc.captain, coach: sc.coach,
+  const breakdown = { rating: sc.rating, chem: sc.chem, total: sc.total, avgOvr: sc.avgOvr, coachOvr: sc.coachOvr,
     cap: Number.isFinite(rules.cap) ? rules.cap : null };
+  const saved = { ...picks, lineup, order };
   await env.DB.prepare("UPDATE drafts SET status = 'done', score = ?, breakdown = ?, picks = ?, verified = 1, finished_at = ? WHERE id = ?")
-    .bind(score, JSON.stringify(breakdown), JSON.stringify(picks), now(), d.id).run();
+    .bind(score, JSON.stringify(breakdown), JSON.stringify(saved), now(), d.id).run();
   const left = await leftToday(env, uid, mode);
 
   if (mode === 'challenge') {
@@ -136,7 +140,7 @@ async function finish(request, env, uid) {
       `INSERT INTO challenge_entries (user_id, week, ch_id, score, breakdown, picks, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id, week) DO UPDATE SET score = excluded.score, breakdown = excluded.breakdown, picks = excluded.picks, updated_at = excluded.updated_at
        WHERE excluded.score > challenge_entries.score`,
-    ).bind(uid, d.week, ch.id, score, JSON.stringify(breakdown), JSON.stringify(picks), now()).run();
+    ).bind(uid, d.week, ch.id, score, JSON.stringify(breakdown), JSON.stringify(saved), now()).run();
     const best = (await env.DB.prepare('SELECT score FROM challenge_entries WHERE user_id = ? AND week = ?').bind(uid, d.week).first()).score;
     const place = await env.DB.prepare('SELECT COUNT(*) + 1 AS n FROM challenge_entries WHERE week = ? AND score > ?').bind(d.week, best).first();
     return json({ score, breakdown, best, place: place.n, left });
