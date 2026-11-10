@@ -41,6 +41,7 @@ async function board(env, uid) {
     players: count.n,
     left,
     active: !!active && active.week === week,
+    activePick: active ? (() => { try { return JSON.parse(active.picks || '{}').order?.length || 0; } catch { return 0; } })() : 0,
     rewards: draftRewardsOn(env),
   });
 }

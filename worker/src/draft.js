@@ -3,6 +3,9 @@
 //        mode: 'draft' (по умолчанию) или 'challenge'; продолжает незаконченную попытку этого режима, если она есть
 //   POST /s/<токен>/api/draft/finish  { id, picks, order, rerolls, lineup } → { score, breakdown, place, left, best? }
 //        order — позиции в порядке выбора; lineup — итоговая расстановка (после перестановок игроков одной позиции)
+//   POST /s/<токен>/api/draft/save    { id, progress } — сохранить незаконченную попытку (пики, порядок,
+//        перевыбросы, расстановку): в Telegram память приложения стирается при выходе, а так попытка
+//        продолжится с того же места и на другом устройстве. Сервер ей не доверяет — finish проверяет всё заново.
 //   GET  /s/<токен>/api/draft/board?period=day|week|all → { top, me, left }
 // Челлендж — тот же драфт (21 пик по 1 из 4), но варианты только из карточек под условие недели.
 // Лучшая попытка недели идёт в таблицу челленджа (challenge_entries).
@@ -49,6 +52,7 @@ const expire = (env, id) => env.DB.prepare("UPDATE drafts SET status = 'expired'
 export async function handleDraft(request, env, uid, path) {
   if (path === '/api/draft/start' && request.method === 'POST') return start(request, env, uid);
   if (path === '/api/draft/finish' && request.method === 'POST') return finish(request, env, uid);
+  if (path === '/api/draft/save' && request.method === 'POST') return save(request, env, uid);
   if (path === '/api/draft/board') return board(request, env, uid);
   return json({ error: 'not_found' }, 404);
 }
@@ -69,7 +73,9 @@ async function start(request, env, uid) {
   }
   const extra = mode === 'challenge' ? { ch, week } : {};
   if (active && !body.fresh) {
-    return json({ id: active.id, seed: active.seed, poolV: active.pool_v, mode, ...extra, resumed: true, left: await leftToday(env, uid, mode) });
+    let progress = null;
+    try { progress = active.picks ? JSON.parse(active.picks) : null; } catch {}
+    return json({ id: active.id, seed: active.seed, poolV: active.pool_v, mode, ...extra, resumed: true, progress, left: await leftToday(env, uid, mode) });
   }
   // Брошенная попытка засчитывается как сыгранная — иначе можно перезапускать до удачных вариантов.
   if (active) await env.DB.prepare("UPDATE drafts SET status = 'abandoned', finished_at = ? WHERE id = ?").bind(t, active.id).run();
@@ -80,6 +86,23 @@ async function start(request, env, uid) {
   await env.DB.prepare("INSERT INTO drafts (id, user_id, day, mode, week, seed, pool_v, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)")
     .bind(id, uid, dayOf(t), mode, mode === 'challenge' ? week : null, seed, pool.v, t).run();
   return json({ id, seed, poolV: pool.v, mode, ...extra, resumed: false, expired, left: left - 1 });
+}
+
+// Прогресс незаконченной попытки хранится в колонке picks (у законченной там итоговый выбор).
+async function save(request, env, uid) {
+  const body = await request.json().catch(() => null);
+  const p = body?.progress;
+  if (!body?.id || !p || typeof p !== 'object' || !Array.isArray(p.order)) return json({ error: 'bad_request' }, 400);
+  const progress = JSON.stringify({
+    picks: p.picks && typeof p.picks === 'object' ? p.picks : {},
+    order: p.order.map(String).slice(0, 30),
+    rerolls: p.rerolls && typeof p.rerolls === 'object' ? p.rerolls : {},
+    rerollsLeft: Number(p.rerollsLeft) || 0,
+    lineup: p.lineup && typeof p.lineup === 'object' ? p.lineup : null,
+  });
+  if (progress.length > 8000) return json({ error: 'too_big' }, 413);
+  const r = await env.DB.prepare("UPDATE drafts SET picks = ? WHERE id = ? AND user_id = ? AND status = 'active'").bind(progress, body.id, uid).run();
+  return json({ ok: (r.meta?.changes ?? 1) > 0 });
 }
 
 async function finish(request, env, uid) {
@@ -176,6 +199,7 @@ async function board(request, env, uid) {
     today: { best: today.best || 0, played: today.n },
     left: await leftToday(env, uid, 'draft'),
     active: !!active,
+    activePick: active ? (() => { try { return JSON.parse(active.picks || '{}').order?.length || 0; } catch { return 0; } })() : 0,
     cap: Number.isFinite(DRAFT_CAP) ? DRAFT_CAP : null,
     rewards: draftRewardsOn(env),
   });
