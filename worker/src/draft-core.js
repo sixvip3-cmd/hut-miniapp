@@ -1,7 +1,7 @@
 // Драфт: общий генератор вариантов для приложения и сервера.
 // Варианты зависят только от «зерна» драфта, номера пика, числа перевыбросов, уже выбранного
 // и бонуса Salary на момент пика — поэтому сервер может повторить их и проверить выбор.
-// На каждый пик — 5 случайных вариантов и запасной список (extra): если среди пяти нет ни одной
+// На каждый пик — 4 случайных варианта и запасной список (extra): если среди четырёх нет ни одной
 // карточки с бонусом в звене, приложение подставляет первую подходящую из запасного списка.
 // Те же правила работают и для челленджа недели: в нём варианты берутся только из карточек,
 // подходящих под условие недели, и лимит зарплаты свой (challenge-core.js → challengeRules).
@@ -28,7 +28,7 @@ export function draftOrder(pool, captainId) {
   const slot = p ? captainSlotFor(p[1]) : null;
   return DRAFT_ORDER.filter(k => k !== slot);
 }
-export const DRAFT_OPTIONS = 5;
+export const DRAFT_OPTIONS = 4; // вариантов на пик
 export const DRAFT_REROLLS = 3;
 export const DRAFT_CAP = Infinity; // в обычном драфте лимита зарплаты нет — в любом раунде может выпасть любая карточка
 export const DRAFT_SAL_MAX = 40; // больше бонуса Salary в составе не бывает — защита от подмены
@@ -61,7 +61,7 @@ export const nameKey = name => String(name).trim().toLowerCase();
 // picks: { CAPTAIN: id, 'F1-LW': id, ..., COACH: id } — выбранное до этого пика
 // salBonus: бонус Salary состава на момент пика (расширяет лимит, как в игре)
 // rules: DRAFT_RULES или правила челленджа
-// → { opts: 5 случайных, extra: запасной список для подстановки «варианта с бонусом» }
+// → { opts: 4 случайных, extra: запасной список для подстановки «варианта с бонусом» }
 export function draftDeal(pool, seed, pickIndex, reroll, picks, salBonus = 0, rules = DRAFT_RULES) {
   const order = draftOrder(pool, picks.CAPTAIN);
   const key = order[pickIndex];
@@ -74,7 +74,7 @@ export function draftDeal(pool, seed, pickIndex, reroll, picks, salBonus = 0, ru
     const caps = pool.captains.filter(id => byId.has(id)).map(id => ({ id, w: weight(byId.get(id)[3]) }));
     if (!rules.allow) return deal(caps, rand, 0);
     // Челлендж: капитан стоит в составе, значит должен подходить под условие недели. Сначала карточки
-    // капитанов под условие; если их меньше пяти — добираем подходящими игроками (они станут капитаном).
+    // капитанов под условие; если их меньше четырёх — добираем подходящими игроками (они станут капитаном).
     const first = sample(caps.filter(c => rules.allow(c.id)), rand, DRAFT_OPTIONS);
     if (first.length >= DRAFT_OPTIONS) return { opts: first, extra: [] };
     const names = new Set(first.map(id => nameKey(byId.get(id)[4])));
@@ -156,7 +156,7 @@ function bySlot(pool, slot, rules) {
   return m[slot];
 }
 
-// Для совместимости: только 5 случайных вариантов.
+// Для совместимости: только варианты пика (без запасного списка).
 export const draftOptions = (...a) => draftDeal(...a).opts;
 
 function deal(cands, rand, extraCount) {
