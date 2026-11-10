@@ -116,3 +116,8 @@ CREATE INDEX IF NOT EXISTS challenge_week ON challenge_entries (week, score);
 DELETE FROM drafts WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v2');
 DELETE FROM challenge_entries WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v2');
 INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_reset_v2', 'done');
+
+-- Переход на 4 варианта на пик: незаконченные драфты с пятью вариантами уже не проверить.
+-- Один раз помечаем их «expired» (попытку не тратит), законченные результаты не трогаем.
+UPDATE drafts SET status = 'expired' WHERE status = 'active' AND NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_options4');
+INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_options4', 'done');

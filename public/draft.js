@@ -1,7 +1,7 @@
 // Вкладка «Драфт»: драфт (команда из случайных карточек) и челлендж недели.
 // Оба режима идут на обычном экране сборки состава. Сохранённый состав пользователя на это время
 // откладывается (state.savedLineup) и возвращается при выходе.
-//   Драфт: капитан → 20 игроков → тренер; на пик 5 вариантов (draft-core.js, общий с сервером),
+//   Драфт: капитан → 20 игроков → тренер; на пик 4 варианта (draft-core.js, общий с сервером),
 //          среди них всегда есть хотя бы один «с бонусом». Лимита зарплаты нет, 3 перевыброса.
 //   Капитан — первый пик и сразу встаёт в состав на свою позицию; пиков 21 (капитан, 19 игроков, тренер).
 //   Сыгранность — с капитаном (score-core.js): клуб +3, страна +2, лига +1 у каждого игрока, шкала 0–100.
@@ -286,7 +286,7 @@ function renderDraftOptions() {
     }).join('');
   }
   const hint = key === 'CAPTAIN' ? 'капитан сразу встаёт в состав' : 'зажми — покажем в составе';
-  $('#picker-list').innerHTML = `<div class="dpick-head"><span>Выбери <b>1 из 5</b></span><span>${hint}</span></div>
+  $('#picker-list').innerHTML = `<div class="dpick-head"><span>Выбери <b>1 из 4</b></span><span>${hint}</span></div>
     <div class="dopts">${cards || '<p class="hint">Нет подходящих карточек</p>'}</div>
     ${d.rerollsLeft > 0 ? `<button class="dskip" data-reroll>🔄 Перевыбросить варианты · осталось ${d.rerollsLeft}</button>` : ''}`;
 }
@@ -487,11 +487,11 @@ async function renderDraftHome() {
     ${b.rewards ? '' : `<div class="dtest"><b>ТЕСТ</b><span>Драфт и челлендж в тестовом режиме: правила и очки ещё могут меняться, таблицы — обнуляться. Наград пока нет.</span></div>`}
     <section class="ddraft glass"><div class="dk">ДРАФТ</div>
       <h2>Собери команду из случайных карточек</h2>
-      <p class="dsub">Как обычная сборка состава, но на каждый пик — 5 случайных вариантов</p>
+      <p class="dsub">Как обычная сборка состава, но на каждый пик — 4 случайных варианта</p>
       <div class="steps"><div class="st"><span class="ic">👑</span><b>Капитан</b><small>пик 1 · сразу в состав</small></div><i class="ar">→</i>
         <div class="st"><span class="ic">🏒</span><b>19 игроков</b><small>пики 2–20</small></div><i class="ar">→</i>
         <div class="st"><span class="ic">📋</span><b>Тренер</b><small>пик 21</small></div></div>
-      <div class="rules"><span>🃏 все ${state.draftPool ? state.draftPool.players.length.toLocaleString('ru-RU') : '8 000+'} карточек базы</span><span>🎴 1 из 5 на пик</span><span>✨ всегда есть вариант с бонусом</span><span>🔄 ${DRAFT_REROLLS} перевыброса</span><span>💸 без лимита зарплаты</span><span>⚗️ сыгранность с капитаном: клуб +3 · страна +2 · лига +1 (до 100)</span></div>
+      <div class="rules"><span>🃏 все ${state.draftPool ? state.draftPool.players.length.toLocaleString('ru-RU') : '8 000+'} карточек базы</span><span>🎴 1 из 4 на пик</span><span>✨ всегда есть вариант с бонусом</span><span>🔄 ${DRAFT_REROLLS} перевыброса</span><span>💸 без лимита зарплаты</span><span>⚗️ сыгранность с капитаном: клуб +3 · страна +2 · лига +1 (до 100)</span></div>
       ${b.active ? `<div class="resume"><div><b>Незаконченный драфт</b><small>${resumePick ? `пик ${resumePick + 1} из ${DRAFT_PICKS}` : 'можно продолжить'}</small></div>
         <button class="ghostbtn sm" data-draft-act="resume">Продолжить</button></div>` : ''}
       <div class="meta3"><div><b>${b.today.best || '—'}</b><small>лучший сегодня</small></div><div><b>${b.me && state.draftPeriod === 'day' ? `#${b.me.place}` : '—'}</b><small>место за день</small></div>
@@ -501,8 +501,8 @@ async function renderDraftHome() {
 
     <section class="dchal glass"><div class="dk">ЧЕЛЛЕНДЖ НЕДЕЛИ <span class="dk-r">${untilText(c.endsAt)}</span></div>
       <h2>${esc(c.ch.title)}</h2>
-      <p class="dsub">Драфт по условию недели: на каждый пик 1 из 5 карточек, подходящих под условие</p>
-      <div class="rules">${c.ch.rules.map(r => `<span>${esc(r)}</span>`).join('')}<span>🎴 1 из 5 на пик</span><span>⚗️ сыгранность с капитаном</span></div>
+      <p class="dsub">Драфт по условию недели: на каждый пик 1 из 4 карточек, подходящих под условие</p>
+      <div class="rules">${c.ch.rules.map(r => `<span>${esc(r)}</span>`).join('')}<span>🎴 1 из 4 на пик</span><span>⚗️ сыгранность с капитаном</span></div>
       ${c.active ? `<div class="resume"><div><b>Незаконченная попытка</b><small>${chResume ? `пик ${chResume + 1} из ${DRAFT_PICKS}` : 'можно продолжить'}</small></div>
         <button class="ghostbtn sm" data-draft-act="chal-resume">Продолжить</button></div>` : ''}
       <div class="chalfoot"><span>${c.me ? `Ваш лучший: <b>${c.me.score}</b> · <b>#${c.me.place}</b> из ${c.players}` : `Участников: ${c.players}`}</span>${c.rewards ? '<span class="prize">🎁 месяц доступа</span>' : ''}</div>

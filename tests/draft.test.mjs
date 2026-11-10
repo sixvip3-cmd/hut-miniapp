@@ -8,7 +8,7 @@ import vm from 'node:vm';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { DRAFT_PICKS, DRAFT_REROLLS, DRAFT_RULES, DRAFT_SLOTS, captainSlotFor, draftDeal, draftOrder, finalOptions, verifyDraft } from '../worker/src/draft-core.js';
+import { DRAFT_OPTIONS, DRAFT_PICKS, DRAFT_REROLLS, DRAFT_RULES, DRAFT_SLOTS, captainSlotFor, draftDeal, draftOrder, finalOptions, verifyDraft } from '../worker/src/draft-core.js';
 import { CHALLENGES, CHALLENGE_SLOTS, ONE_CLUB, challengeAllows, challengeCheck, challengeNow, challengeRules } from '../worker/src/challenge-core.js';
 import { CHEM_PER_PLAYER, captainChem, captainLink, draftBonus, scoreLineup } from '../worker/src/score-core.js';
 import { expandPlayers } from '../worker/src/game-data.js';
@@ -150,7 +150,7 @@ test('челлендж-драфт: каждое условие проходим�
     seen.add(ch.title);
     const rules = challengeRules(ch, data.byId);
     const capOpts = draftDeal(pool, n + 1, 0, 0, {}, 0, rules).opts;
-    assert.equal(capOpts.length, 5, `${ch.title}: вариантов капитана`);
+    assert.equal(capOpts.length, DRAFT_OPTIONS, `${ch.title}: вариантов капитана`);
     assert.ok(capOpts.every(id => rules.allow(id)), `${ch.title}: капитан не под условие`);
     for (const seed of [n * 101 + 7, n * 977 + 3]) {
       const { picks, rerolls } = playDraft(seed, opts => opts[seed % opts.length], [], rules);
