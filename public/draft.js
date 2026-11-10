@@ -37,7 +37,26 @@ const store = {
   del: k => { try { localStorage.removeItem(k); } catch {} },
 };
 const keyOf = mode => (mode === 'challenge' ? CHAL_KEY : DRAFT_KEY);
-const saveDraftLocal = () => { const { preview, sel, options, optKey, ...d } = state.draft; store.set(keyOf(d.mode), d); };
+// Прогресс сохраняем и в телефоне, и на сервере: в Telegram память приложения может стереться при выходе.
+let saveTimer = null;
+const saveDraftLocal = () => {
+  const { preview, sel, options, optKey, ...d } = state.draft;
+  store.set(keyOf(d.mode), d);
+  clearTimeout(saveTimer);
+  const body = { id: d.id, progress: { picks: d.picks, order: d.order, rerolls: d.rerolls, rerollsLeft: d.rerollsLeft, lineup: d.lineup } };
+  saveTimer = setTimeout(() => draftApi('draft/save', body).catch(() => {}), 300);
+};
+// Свернули или закрыли приложение — отправляем прогресс сразу, не дожидаясь таймера.
+const flushDraftSave = () => {
+  if (!saveTimer || !state.draft) return;
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  const d = state.draft;
+  const body = JSON.stringify({ id: d.id, progress: { picks: d.picks, order: d.order, rerolls: d.rerolls, rerollsLeft: d.rerollsLeft, lineup: d.lineup } });
+  try { fetch('api/draft/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true }); } catch {}
+};
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushDraftSave(); });
+window.addEventListener('pagehide', flushDraftSave);
 const loadDraftLocal = mode => store.get(keyOf(mode));
 const clearDraftLocal = mode => store.del(keyOf(mode));
 
@@ -62,8 +81,11 @@ async function startDraft(fresh = false, mode = 'draft') {
     const pool = await draftPool(res.poolV);
     if (pool.v !== res.poolV) throw new Error('pool');
     const local = loadDraftLocal(mode);
-    state.draft = local?.id === res.id && Array.isArray(local.order) ? local
-      : { id: res.id, mode, ch: res.ch || null, week: res.week || null, seed: res.seed, poolV: res.poolV, picks: {}, order: [], rerolls: {}, rerollsLeft: DRAFT_REROLLS, lineup: null };
+    const blank = { id: res.id, mode, ch: res.ch || null, week: res.week || null, seed: res.seed, poolV: res.poolV, picks: {}, order: [], rerolls: {}, rerollsLeft: DRAFT_REROLLS, lineup: null };
+    const mine = local?.id === res.id && Array.isArray(local.order) ? local : null;
+    const srv = res.progress && Array.isArray(res.progress.order) ? { ...blank, ...res.progress } : null;
+    // Берём более полную копию: в телефоне (если память не стёрлась) или на сервере.
+    state.draft = mine && (!srv || mine.order.length >= srv.order.length) ? mine : srv || blank;
     state.draft.mode = mode;
     if (res.ch) state.draft.ch = res.ch;
     state.draftResult = null;
@@ -447,9 +469,9 @@ async function renderDraftHome() {
   catch { el.innerHTML = '<p class="hint">Нет связи с сервером. Попробуй позже.</p>'; return; }
   draftPool().catch(() => {});
   const local = loadDraftLocal('draft');
-  const resumePick = b.active && local ? local.order?.length || 0 : 0;
+  const resumePick = b.active ? Math.max(local?.order?.length || 0, b.activePick || 0) : 0;
   const chLocal = loadDraftLocal('challenge');
-  const chResume = c.active && chLocal?.week === c.week ? chLocal.order?.length || 0 : 0;
+  const chResume = c.active ? Math.max(chLocal?.week === c.week ? chLocal.order?.length || 0 : 0, c.activePick || 0) : 0;
   const chLeft = c.left > 50 ? '∞' : c.left;
   const medal = i => ['🥇', '🥈', '🥉'][i] || String(i + 1);
   const row = (r, i) => `<div class="lrow${r.me ? ' me' : ''}"><span class="pl">${medal(i)}</span><span class="nm">${esc(r.name)}${r.me ? ' <i>вы</i>' : ''}</span><b>${r.score}</b></div>`;
