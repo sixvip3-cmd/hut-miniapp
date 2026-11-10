@@ -109,3 +109,10 @@ CREATE TABLE IF NOT EXISTS challenge_entries (
   PRIMARY KEY (user_id, week)
 );
 CREATE INDEX IF NOT EXISTS challenge_week ON challenge_entries (week, score);
+
+-- Одноразовый сброс тестовых таблиц драфта и челленджа при переходе на «капитан в составе,
+-- сыгранность с капитаном» (старые результаты посчитаны по другим правилам). Выполняется при деплое,
+-- но удаляет только пока нет отметки draft_reset_v2 — на следующих деплоях ничего не трогает.
+DELETE FROM drafts WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v2');
+DELETE FROM challenge_entries WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v2');
+INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_reset_v2', 'done');
