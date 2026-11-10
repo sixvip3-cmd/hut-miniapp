@@ -12,7 +12,7 @@ import { DRAFT_CAP, DRAFT_ORDER, DRAFT_RULES, DRAFTS_PER_DAY, verifyDraft } from
 import { CHALLENGE_PER_DAY, CHALLENGE_SLOTS, challengeCheck, challengeNow, challengeRules } from './challenge-core.js';
 import { draftSalAtPicks, scoreLineup } from './score-core.js';
 import { gameData } from './game-data.js';
-import { isAdmin, now } from './db.js';
+import { draftRewardsOn, isAdmin, now } from './db.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -171,5 +171,6 @@ async function board(request, env, uid) {
     left: await leftToday(env, uid, 'draft'),
     active: !!active,
     cap: Number.isFinite(DRAFT_CAP) ? DRAFT_CAP : null,
+    rewards: draftRewardsOn(env),
   });
 }

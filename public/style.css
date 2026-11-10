@@ -804,3 +804,13 @@ body.draft-mode .slots.linked { position: relative; }
 #picker.dpick .dchips { flex-direction: column; align-items: stretch; gap: 3px; }
 #picker.dpick .dchips i { font-size: 9px; padding: 3px 4px; border-radius: 5px; max-width: none; white-space: normal; line-height: 1.15; text-align: center; overflow-wrap: anywhere; }
 #picker.dpick .dpick-head { font-size: 11px; flex-wrap: wrap; }
+
+/* Драфт в тестовом режиме: плашки «ТЕСТ» */
+.test-badge { font: 600 12px/1 var(--display); font-style: normal; letter-spacing: 1px; vertical-align: middle; margin-left: 6px;
+  padding: 4px 7px; border-radius: 7px; color: #04132f; background: #fbbf24; position: relative; top: -3px; }
+.tabbar button[data-view="draft"] { position: relative; }
+.tab-test { position: absolute; top: 2px; right: 50%; transform: translateX(26px); font: 700 7.5px/1 var(--font); font-style: normal; letter-spacing: .5px;
+  padding: 2px 4px; border-radius: 5px; color: #04132f; background: #fbbf24; pointer-events: none; }
+.dtest { display: flex; gap: 10px; align-items: flex-start; margin: 0 0 12px; padding: 10px 12px; border-radius: 14px;
+  background: rgba(251,191,36,.1); border: 1px solid rgba(251,191,36,.4); font-size: 12px; line-height: 1.4; color: #f5e6c0; }
+.dtest b { flex: none; font: 600 11px/1 var(--display); letter-spacing: 1px; color: #04132f; background: #fbbf24; padding: 4px 6px; border-radius: 6px; }

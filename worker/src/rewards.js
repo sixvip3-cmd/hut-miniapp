@@ -4,7 +4,7 @@
 // Неделя и месяц — по Москве. При равных очках выигрывает тот, кто набрал их раньше.
 
 import { bot } from './telegram.js';
-import { adminIds, extendDays } from './db.js';
+import { adminIds, draftRewardsOn, extendDays } from './db.js';
 import { challengeNow } from './challenge-core.js';
 import { challengeTop } from './challenge.js';
 
@@ -34,6 +34,7 @@ async function grant(env, winner, days, text) {
 }
 
 export async function runRewards(env) {
+  if (!draftRewardsOn(env)) return []; // драфт в тесте — наград пока нет
   const nowMs = Date.now();
   const { week } = challengeNow(nowMs);
   const prevWeek = new Date(Date.parse(week) - 7 * DAY).toISOString().slice(0, 10);

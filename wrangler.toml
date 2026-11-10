@@ -27,5 +27,6 @@ PRODUCT_TITLE = "HUT Builder Premium"
 ADMIN_IDS = ""                # Telegram id через запятую: бесплатный доступ и команда /refund
 SUPPORT_CONTACT = ""          # контакт для /paysupport, например @username
 BOT_USERNAME = ""             # username бота без @ — для кнопки «Открыть в Telegram»
+DRAFT_REWARDS = "0"           # награды за драфт и челлендж (доступ №1 недели/месяца): "1" — включить
 
 # Секрет BOT_TOKEN задаётся через `wrangler secret put BOT_TOKEN` (в CI — из секретов GitHub).

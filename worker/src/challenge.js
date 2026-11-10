@@ -5,6 +5,7 @@
 
 import { challengeNow } from './challenge-core.js';
 import { activeRun, leftToday } from './draft.js';
+import { draftRewardsOn } from './db.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -40,5 +41,6 @@ async function board(env, uid) {
     players: count.n,
     left,
     active: !!active && active.week === week,
+    rewards: draftRewardsOn(env),
   });
 }

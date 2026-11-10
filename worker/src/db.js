@@ -9,6 +9,8 @@ export const trialDays = env => Math.max(0, Number(env.TRIAL_DAYS ?? 3));
 export const refBonusDays = env => Math.max(0, Number(env.REF_BONUS_DAYS ?? 7));
 export const adminIds = env => String(env.ADMIN_IDS || '').split(/[\s,]+/).filter(Boolean).map(Number);
 export const isAdmin = (env, id) => adminIds(env).includes(Number(id));
+// Драфт пока в тесте: награды доступом выключены, пока DRAFT_REWARDS не равен "1".
+export const draftRewardsOn = env => String(env.DRAFT_REWARDS || '') === '1';
 
 // ---------- Пользователи ----------
 export async function touchUser(env, user, refBy = null) {

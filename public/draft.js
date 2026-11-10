@@ -501,6 +501,7 @@ async function renderDraftHome() {
   const row = (r, i) => `<div class="lrow${r.me ? ' me' : ''}"><span class="pl">${medal(i)}</span><span class="nm">${esc(r.name)}${r.me ? ' <i>вы</i>' : ''}</span><b>${r.score}</b></div>`;
   const left = b.left > 50 ? '∞' : b.left;
   el.innerHTML = `
+    ${b.rewards ? '' : `<div class="dtest"><b>ТЕСТ</b><span>Драфт и челлендж в тестовом режиме: правила и очки ещё могут меняться, таблицы — обнуляться. Наград пока нет.</span></div>`}
     <section class="ddraft glass"><div class="dk">ДРАФТ</div>
       <h2>Собери команду из случайных карточек</h2>
       <p class="dsub">Как обычная сборка состава, но на каждый пик — 5 случайных вариантов</p>
@@ -513,7 +514,7 @@ async function renderDraftHome() {
       <div class="meta3"><div><b>${b.today.best || '—'}</b><small>лучший сегодня</small></div><div><b>${b.me && state.draftPeriod === 'day' ? `#${b.me.place}` : '—'}</b><small>место за день</small></div>
         <div><b>${left}</b><small>драфтов осталось</small></div></div>
       <button class="btn-primary" data-draft-act="new" ${b.left <= 0 ? 'disabled' : ''}>${b.left <= 0 ? 'Драфты на сегодня закончились' : b.active ? 'Начать новый драфт' : 'Начать драфт'}</button>
-      <p class="hint dscore-hint">Очки: 4 × средний OVR карточек + 2 × химия (до 60) + бонусы капитана и тренера.<br>🏆 №1 недели — месяц доступа, №1 месяца — год.</p></section>
+      <p class="hint dscore-hint">Очки: 4 × средний OVR карточек + 2 × химия (до 60) + бонусы капитана и тренера.${b.rewards ? '<br>🏆 №1 недели — месяц доступа, №1 месяца — год.' : ''}</p></section>
 
     <section class="dchal glass"><div class="dk">ЧЕЛЛЕНДЖ НЕДЕЛИ <span class="dk-r">${untilText(c.endsAt)}</span></div>
       <h2>${esc(c.ch.title)}</h2>
@@ -521,7 +522,7 @@ async function renderDraftHome() {
       <div class="rules">${c.ch.rules.map(r => `<span>${esc(r)}</span>`).join('')}<span>🎴 1 из 5 на пик</span><span>⚗️ химия клуб/страна</span></div>
       ${c.active ? `<div class="resume"><div><b>Незаконченная попытка</b><small>${chResume ? `пик ${chResume + 1} из ${DRAFT_ORDER.length}` : 'можно продолжить'}</small></div>
         <button class="ghostbtn sm" data-draft-act="chal-resume">Продолжить</button></div>` : ''}
-      <div class="chalfoot"><span>${c.me ? `Ваш лучший: <b>${c.me.score}</b> · <b>#${c.me.place}</b> из ${c.players}` : `Участников: ${c.players}`}</span><span class="prize">🎁 месяц доступа</span></div>
+      <div class="chalfoot"><span>${c.me ? `Ваш лучший: <b>${c.me.score}</b> · <b>#${c.me.place}</b> из ${c.players}` : `Участников: ${c.players}`}</span>${c.rewards ? '<span class="prize">🎁 месяц доступа</span>' : ''}</div>
       ${c.top.length ? `<div class="chaltop">${c.top.slice(0, 3).map(row).join('')}</div>` : ''}
       <button class="ghostbtn wide" data-draft-act="chal-new" ${c.left <= 0 ? 'disabled' : ''}>${c.left <= 0 ? 'Попытки на сегодня закончились'
         : `${c.active ? 'Начать новую попытку' : c.me ? 'Улучшить результат' : 'Начать челлендж'} · осталось ${chLeft} сегодня`}</button></section>
