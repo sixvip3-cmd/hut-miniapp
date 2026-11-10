@@ -1,7 +1,7 @@
 // Челлендж недели: общие правила для приложения и сервера (в приложение — как обычный скрипт, без export).
 // Каждую неделю (с понедельника по Москве) — новое условие из списка по кругу. Состав собирается как драфт:
-// 22 пика по 1 из 5 случайных вариантов, но варианты — только из карточек, подходящих под условие,
-// и лимит зарплаты — лимит недели (бонусы Salary его не расширяют). В зачёт идёт лучшая попытка недели.
+// 22 пика по 1 из 5 случайных вариантов, но варианты — только из карточек, подходящих под условие.
+// Лимита зарплаты нет: в каждом раунде может выпасть любая подходящая карточка. В зачёт — лучшая попытка недели.
 
 import { captainMatch, captainRuleFor } from './chemistry-core.js';
 
@@ -34,22 +34,22 @@ export const ONE_CLUB = [
 
 // Порядок недель. «Ледяная стена» — первая неделя (2 ноября 2026), дальше по кругу.
 export const CHALLENGES = [
-  { id: 'ice-wall', title: 'Ледяная стена', cap: 60, conference: 'east', goalieMin: 85,
-    rules: ['💰 Зарплата до $60M', '🏒 Только Восточная конференция', '🧤 Вратари 85+'] },
-  { id: 'red-machine', title: 'Красная машина', cap: 45, nations: ['RUSSIA'], rules: ['💰 Зарплата до $45M', '🇷🇺 Только русские'] },
-  { id: 'wild-west', title: 'Дикий Запад', cap: 70, conference: 'west', rules: ['💰 Зарплата до $70M', '🤠 Только Западная конференция'] },
-  { id: 'original-six', title: 'Оригинальная шестёрка', cap: 55, teams: ORIGINAL_SIX,
-    rules: ['💰 Зарплата до $55M', '🏛 Бостон, Чикаго, Детройт, Монреаль, Рейнджерс, Торонто'] },
-  { id: 'maple', title: 'Кленовый лист', cap: 75, nations: ['CANADA'], rules: ['💰 Зарплата до $75M', '🇨🇦 Только канадцы'] },
-  { id: 'legends', title: 'Легенды', cap: 50, legends: true, rules: ['💰 Зарплата до $50M', '🏆 Только легенды: Alumni и ICONS'] },
-  { id: 'no-stars', title: 'Без звёзд', cap: 80, maxOvr: 85, rules: ['💰 Зарплата до $80M', '⭐ Карточки не выше 85 OVR'] },
-  { id: 'one-club', title: 'Один за всех', cap: 50, oneClub: true, rules: ['💰 Зарплата до $50M'] },
-  { id: 'budget', title: 'Экономия', cap: 50, rules: ['💰 Зарплата до $50M', '🎴 Любые карточки'] },
-  { id: 'base-school', title: 'Базовая школа', cap: 70, baseOnly: true, rules: ['💰 Зарплата до $70M', '🃏 Только Base-карточки'] },
-  { id: 'stars-stripes', title: 'Звёзды и полосы', cap: 75, nations: ['USA'], rules: ['💰 Зарплата до $75M', '🇺🇸 Только американцы'] },
-  { id: 'outside-nhl', title: 'Вне НХЛ', cap: 30, outsideNhl: true, rules: ['💰 Зарплата до $30M', '🌍 АХЛ, Европа и юниоры — без НХЛ и легенд'] },
-  { id: 'europe', title: 'Европейский экспресс', cap: 80, excludeNations: ['CANADA', 'USA'], rules: ['💰 Зарплата до $80M', '🇪🇺 Без канадцев и американцев'] },
-  { id: 'cap3', title: 'Потолок $3M', cap: 60, maxSalary: 3, rules: ['💵 Каждая карточка не дороже $3M'] },
+  { id: 'ice-wall', title: 'Ледяная стена', conference: 'east', goalieMin: 85,
+    rules: ['🏒 Только Восточная конференция', '🧤 Вратари 85+'] },
+  { id: 'red-machine', title: 'Красная машина', nations: ['RUSSIA'], rules: ['🇷🇺 Только русские'] },
+  { id: 'wild-west', title: 'Дикий Запад', conference: 'west', rules: ['🤠 Только Западная конференция'] },
+  { id: 'original-six', title: 'Оригинальная шестёрка', teams: ORIGINAL_SIX,
+    rules: ['🏛 Бостон, Чикаго, Детройт, Монреаль, Рейнджерс, Торонто'] },
+  { id: 'maple', title: 'Кленовый лист', nations: ['CANADA'], rules: ['🇨🇦 Только канадцы'] },
+  { id: 'legends', title: 'Легенды', legends: true, rules: ['🏆 Только легенды: Alumni и ICONS'] },
+  { id: 'no-stars', title: 'Без звёзд', maxOvr: 85, rules: ['⭐ Карточки не выше 85 OVR'] },
+  { id: 'one-club', title: 'Один за всех', oneClub: true, rules: [] },
+  { id: 'current', title: 'Действующие', noLegends: true, rules: ['🏒 Только нынешние игроки — без Alumni и ICONS'] },
+  { id: 'base-school', title: 'Базовая школа', baseOnly: true, rules: ['🃏 Только Base-карточки'] },
+  { id: 'stars-stripes', title: 'Звёзды и полосы', nations: ['USA'], rules: ['🇺🇸 Только американцы'] },
+  { id: 'outside-nhl', title: 'Вне НХЛ', outsideNhl: true, rules: ['🌍 АХЛ, Европа и юниоры — без НХЛ и легенд'] },
+  { id: 'europe', title: 'Европейский экспресс', excludeNations: ['CANADA', 'USA'], rules: ['🇪🇺 Без канадцев и американцев'] },
+  { id: 'cap3', title: 'Потолок $3M', maxSalary: 3, rules: ['💵 Каждая карточка не дороже $3M'] },
 ];
 export const CHALLENGE_SLOTS = [
   'F1-LW', 'F1-C', 'F1-RW', 'F2-LW', 'F2-C', 'F2-RW', 'F3-LW', 'F3-C', 'F3-RW', 'F4-LW', 'F4-C', 'F4-RW',
@@ -83,6 +83,7 @@ export function challengeAllows(ch, p) {
   if (ch.conference && !CONFERENCES[ch.conference].includes(teamKey(p.team))) return false;
   if (ch.teams && !ch.teams.includes(teamKey(p.team))) return false;
   if (ch.legends && !isLegend(p)) return false;
+  if (ch.noLegends && isLegend(p)) return false;
   if (ch.baseOnly && !/^base$/i.test(String(p.card || '').trim())) return false;
   if (ch.outsideNhl && (p.league === 'NHL' || p.league === 'NHLAA')) return false;
   if (ch.maxSalary && p.salary > ch.maxSalary) return false;
@@ -110,7 +111,7 @@ export function challengeCheck(ch, lineup) {
     names.add(n);
     salary += p.salary;
   }
-  if (salary > ch.cap + 0.05) return `Зарплата $${salary.toFixed(1)}M — больше лимита $${ch.cap}M`;
+  if (ch.cap && salary > ch.cap + 0.05) return `Зарплата $${salary.toFixed(1)}M — больше лимита $${ch.cap}M`;
   return null;
 }
 
@@ -123,7 +124,7 @@ export function challengeRules(ch, byId, captains = []) {
   const tiers = captainTiers(ch, byId, captains, key);
   return {
     key,
-    cap: ch.cap,
+    cap: ch.cap || Infinity, // у челленджей лимита зарплаты нет
     salBonus: false,
     allow: id => { const p = byId[id]; return !!p && challengeAllows(ch, p); },
     captainTier: id => tiers.get(id) ?? 2,

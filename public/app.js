@@ -409,7 +409,7 @@ function renderTeam() {
   }
   state.coachState = co;
   // В челлендже лимит зарплаты фиксированный (условие недели), бонусы Salary его не расширяют.
-  if (state.draft?.mode === 'challenge') { sum.salaryCap = state.draft.ch.cap; sum.fixedCap = true; }
+  if (state.draft?.mode === 'challenge' && state.draft.ch.cap) { sum.salaryCap = state.draft.ch.cap; sum.fixedCap = true; }
   state.lastSum = sum;
   renderSummary(sum);
   renderStaff(cap, co);

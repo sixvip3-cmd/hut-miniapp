@@ -79,8 +79,8 @@ test('очки считаются по карточкам и не зависят
   assert.equal(bare.chem, sc.chem);
 });
 
-test('челлендж: состав по условиям проходит, сверх лимита и не на своей позиции — нет', () => {
-  const ch = CHALLENGES.find(c => c.id === 'budget');
+test('челлендж: состав по условиям проходит, сверх лимита (если он задан) и не на своей позиции — нет', () => {
+  const ch = CHALLENGES.find(c => c.id === 'current');
   const players = Object.values(data.byId).sort((a, b) => a.salary - b.salary || b.ovr - a.ovr);
   const used = new Set();
   const lineup = {};

@@ -126,9 +126,7 @@ function decorateDraftTeam() {
   const key = DRAFT_ORDER[d.pick];
   const sc = draftScore();
   const spent = lineupSalary();
-  const money = isChal()
-    ? `💰 <b class="${spent > d.ch.cap ? 'over' : ''}">$${spent.toFixed(1)}M</b> / $${d.ch.cap}M`
-    : `💰 <b>$${spent.toFixed(1)}M</b>`;
+  const money = `💰 <b>$${spent.toFixed(1)}M</b>`;
   $('#draft-bar').hidden = false;
   $('#draft-bar').innerHTML = `
     <div class="dbar"><button class="dx" data-draft="leave" aria-label="Выйти">✕</button>
@@ -189,7 +187,7 @@ function decorateDraftSummary() {
   $('#sum-ovr').textContent = ovr || '—';
   $('#ovr-arc').style.strokeDashoffset = RING * (1 - (ovr ? Math.min(1, Math.max(0.04, (ovr - 60) / 39)) : 0));
   const spent = lineupSalary();
-  if (isChal()) {
+  if (isChal() && state.draft.ch.cap) {
     const cap = state.draft.ch.cap;
     const over = spent > cap;
     $('#sum-cap').textContent = `/ $${cap}M`;
@@ -304,7 +302,7 @@ function renderDraftOptions() {
         <small class="dt2">${flag(p.nation)} ${esc(p.team)} · $${p.salary}M</small><span class="dchips">${links}${capTxt}</span></button>`;
     }).join('');
   }
-  const money = isChal() && key !== 'CAPTAIN' && key !== 'COACH' ? ` · осталось <b>$${(draftCap() - lineupSalary()).toFixed(1)}M</b>` : '';
+  const money = isChal() && d.ch.cap && key !== 'CAPTAIN' && key !== 'COACH' ? ` · осталось <b>$${(draftCap() - lineupSalary()).toFixed(1)}M</b>` : '';
   $('#picker-list').innerHTML = `<div class="dpick-head"><span>Выбери <b>1 из 5</b>${money}</span><span>зажми — покажем связи</span></div>
     <div class="dopts">${cards || '<p class="hint">Нет подходящих карточек</p>'}</div>
     ${d.rerollsLeft > 0 ? `<button class="dskip" data-reroll>🔄 Перевыбросить варианты · осталось ${d.rerollsLeft}</button>` : ''}`;
