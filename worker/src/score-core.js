@@ -100,7 +100,14 @@ export function teamChem(lineup, captainId, byId) {
 
 // lineup: { 'F1-LW': id, ... } — 20 слотов (капитан среди них); captainId, coachId (или null)
 // data: { byId, combos, captains, coaches }
-// → { rating 0–100, chem 0–100, total (до 200), avgOvr, players, coachInfo, ... }
+// → { rating 0–100 (очки за средний OVR), ovr (средний OVR с тренером), chem 0–100, total (до 200), avgOvr, players, coachInfo, ... }
+// Очки рейтинга: средний OVR состава (с прибавкой тренера) растянут на шкалу 0–100 —
+// RATING_FROM и ниже = 0, RATING_TO и выше = 100. Карточки в пуле почти все 80–90, поэтому среднее
+// у всех 83–88: без растяжки сильный состав обходил средний на 2–3 очка, а итог у всех был ~182–187.
+export const RATING_FROM = 78;
+export const RATING_TO = 90;
+export const ratingPoints = avg => Math.max(0, Math.min(100, Math.round(((avg - RATING_FROM) / (RATING_TO - RATING_FROM)) * 100)));
+
 export function scoreLineup(lineup, captainId, coachId, data) {
   const coach = coachId != null ? data.coaches.find(c => c.id === coachId) : null;
   const co = coach ? coachStatus(coach, lineup, data.byId) : null;
@@ -117,9 +124,10 @@ export function scoreLineup(lineup, captainId, coachId, data) {
   }
   const chem = teamChem(lineup, captainId, data.byId);
   const avg = n ? ovrSum / n : 0;
-  const rating = n ? Math.min(100, Math.round(avg)) : 0;
+  const rating = n ? ratingPoints(avg) : 0;
   return {
     rating,
+    ovr: n ? Math.round(avg * 10) / 10 : 0,
     chem: chem.total,
     total: rating + chem.total,
     avgOvr: n ? Math.round((rawSum / n) * 10) / 10 : 0,

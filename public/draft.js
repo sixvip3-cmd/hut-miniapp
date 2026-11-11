@@ -171,7 +171,7 @@ function renderDraftScreen() {
       <span class="ds-rr" title="Перевыбросы">🔄 ${d.rerollsLeft}</span>
     </header>
     <div class="ds-meters">
-      <div class="ds-m"><span>Рейтинг</span><b>${sc.rating || '—'}<small>/100</small></b><div class="ds-bar r"><i style="width:${sc.rating}%"></i></div></div>
+      <div class="ds-m"><span>Рейтинг${sc.ovr ? ` · OVR ${sc.ovr.toFixed(1)}` : ''}</span><b>${sc.ovr ? sc.rating : '—'}<small>/100</small></b><div class="ds-bar r"><i style="width:${sc.rating}%"></i></div></div>
       <div class="ds-m"><span>Сыгранность</span><b>${sc.chem}<small>/100</small></b><div class="ds-bar c"><i style="width:${sc.chem}%"></i></div></div>
       <div class="ds-tot"><b>${sc.total}</b><small>из 200</small></div>
     </div>
@@ -269,8 +269,9 @@ function renderDraftPick() {
     const w = withOption(key, id);
     const sc = draftScoreOf(w.lineup, w.coach, w.captain);
     // Под карточкой — рейтинг КОМАНДЫ с этим игроком и на сколько он изменится (OVR игрока — на самой карточке).
-    const dr = sc.rating - base.rating;
-    const rating = `<span class="ds-or">Команда <b>${sc.rating}</b>${base.rating ? `<em class="${dr > 0 ? 'up' : dr < 0 ? 'down' : ''}">${dr > 0 ? `▲${dr}` : dr < 0 ? `▼${-dr}` : '='}</em>` : ''}</span>`;
+    // Под карточкой — средний OVR команды с этим вариантом и на сколько он изменится.
+    const dr = Math.round((sc.ovr - base.ovr) * 10) / 10;
+    const rating = `<span class="ds-or">Команда <b>${sc.ovr.toFixed(1)}</b>${base.ovr ? `<em class="${dr > 0 ? 'up' : dr < 0 ? 'down' : ''}">${dr > 0 ? `▲${dr.toFixed(1)}` : dr < 0 ? `▼${(-dr).toFixed(1)}` : '='}</em>` : ''}</span>`;
     if (key === 'COACH') {
       const c = coachById(id);
       if (!c) return '';
@@ -315,7 +316,7 @@ function startPickPreview(opt) {
   $('#ds-pick').classList.add('peek');
   const pv = $('#ds-pick .ds-pv');
   pv.hidden = false;
-  pv.innerHTML = `Рейтинг ${before.rating || '—'} → <b>${after.rating}</b> · сыгранность ${before.chem} → <b class="${after.chem > before.chem ? 'up' : ''}">${after.chem}</b>`;
+  pv.innerHTML = `Рейтинг ${before.ovr ? before.rating : '—'} → <b>${after.rating}</b> · сыгранность ${before.chem} → <b class="${after.chem > before.chem ? 'up' : ''}">${after.chem}</b>`;
   renderDraftScreen();
   document.querySelector(`#draft-screen [data-slot="${d.preview.slot}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   haptic('light');
@@ -384,7 +385,7 @@ async function finishDraft() {
   try {
     const res = await draftApi('draft/finish', { id: d.id, picks: d.picks, order: d.order, rerolls: d.rerolls, lineup: curLineup() });
     const b = res.breakdown || {};
-    state.draftResult = { rating: b.rating ?? sc.rating, chem: b.chem ?? sc.chem, total: res.score, avgOvr: b.avgOvr ?? sc.avgOvr,
+    state.draftResult = { rating: b.rating ?? sc.rating, ovr: b.ovr ?? sc.ovr, chem: b.chem ?? sc.chem, total: res.score, avgOvr: b.avgOvr ?? sc.avgOvr,
       coachOvr: b.coachOvr ?? sc.coachOvr, coachInfo: sc.coachInfo, place: res.place, best: res.best, left: res.left,
       mode: d.mode, ch: d.ch, picks: { ...d.picks }, lineup: curLineup(), gift: res.gift || null };
     clearDraftLocal(d.mode);
@@ -431,7 +432,7 @@ function renderDraftResult() {
       <div class="sr"><span class="badge coach-thumb">${coach ? coachImg(coach, true) : ''}</span><div><small>ТРЕНЕР</small><b>${esc(coach?.name || '—')}</b>
         <span class="${r.coachInfo?.active ? 'ok' : 'muted'}">${r.coachInfo ? `${r.coachInfo.active}/${r.coachInfo.of} комбинаций${r.coachOvr ? ` · +${r.coachOvr} OVR` : ''}` : ''}</span></div></div></section>
     <section class="glass brk"><div class="dk">ИЗ ЧЕГО СЛОЖИЛОСЬ</div>
-      <div class="br"><span>Рейтинг команды</span><em>средний OVR ${r.avgOvr}${r.coachOvr ? ' + тренер' : ''}</em><b>${r.rating}</b></div>
+      <div class="br"><span>Рейтинг команды</span><em>OVR ${r.ovr ?? r.avgOvr}${r.coachOvr ? ' с тренером' : ''} · 78 = 0, 90 = 100</em><b>${r.rating}</b></div>
       <div class="br"><span>Сыгранность</span><em>с капитаном + в звеньях</em><b>${r.chem}</b></div>
       <div class="br tot"><span>Итог</span><em>из 200</em><b>${r.total}</b></div></section>
     <div class="dgrid">${DRAFT_SLOTS.map(k => { const p = state.byId[r.lineup[k]]; return `<div class="dmini" style="${p ? cardStyle(p) : ''}">${p ? cardImg(p, true) : ''}</div>`; }).join('')}</div>
@@ -478,7 +479,7 @@ async function renderDraftHome() {
       <div class="meta3"><div><b>${b.today.best || '—'}</b><small>лучший сегодня</small></div><div><b>${b.me && state.draftPeriod === 'day' ? `#${b.me.place}` : '—'}</b><small>место за день</small></div>
         <div><b>${left}</b><small>драфтов осталось</small></div></div>
       <button class="btn-primary" data-draft-act="new" ${b.left <= 0 ? 'disabled' : ''}>${b.left <= 0 ? 'Драфты на сегодня закончились' : b.active ? 'Начать новый драфт' : 'Начать драфт'}</button>
-      <p class="hint dscore-hint">Оценка: рейтинг команды (до 100) + сыгранность (до 100) = итог до 200.${b.rewards ? '<br>🏆 №1 недели — месяц доступа, №1 месяца — год.' : ''}</p></section>
+      <p class="hint dscore-hint">Оценка: рейтинг (средний OVR: 78 = 0, 90 = 100) + сыгранность (до 100) = итог до 200.${b.rewards ? '<br>🏆 №1 недели — месяц доступа, №1 месяца — год.' : ''}</p></section>
 
     <section class="dchal glass"><div class="dk">ЧЕЛЛЕНДЖ НЕДЕЛИ <span class="dk-r">${untilText(c.endsAt)}</span></div>
       <h2>${esc(c.ch.title)}</h2>
