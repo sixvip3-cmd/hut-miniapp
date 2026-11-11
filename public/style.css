@@ -1016,3 +1016,5 @@ body.draft-open .tabbar { display: none; }
 .ds-pick .ds-oi:has(.card-img.ok) .dovr, .ds-pick .ds-oi:has(.card-img.ok) .dnm,
 .ds-pick .ds-oi:has(.card-img.ok) .coach-fallback { visibility: hidden; }
 .ds-pick .ds-oi .dnm { font-size: 15px; bottom: 16px; }
+.dr-tot em { display: block; font-style: normal; font-size: 12px; color: var(--muted); margin-top: 4px; }
+.dr-ring.r b { font-size: 30px; }
