@@ -260,46 +260,25 @@ function withOption(key, id) {
     slot: key === 'CAPTAIN' ? captainSlotFor(state.byId[id]?.pos) : key };
 }
 
+// Выбор: 4 карточки крупно на весь экран, под каждой — только рейтинг команды с этим вариантом.
 function renderDraftPick() {
   const d = D();
   const key = d.optKey;
-  const now = draftScoreOf();
-  const chip = (cls, t) => `<i class="${cls}">${t}</i>`;
   const cards = d.options.map(id => {
     const w = withOption(key, id);
     const sc = draftScoreOf(w.lineup, w.coach, w.captain);
-    const dc = sc.chem - now.chem;
-    const pl = sc.team.players[w.slot];
-    const dots = pl ? `${'●'.repeat(pl.stars)}${'○'.repeat(3 - pl.stars)} ` : '';
-    const head = `<span class="dchips">${chip(pl ? ['r', 'y', 'y', 'g'][pl.stars] : dc > 0 ? 'g' : 'z', `${dots}сыгр. ${dc > 0 ? '+' : ''}${dc}`)}${chip('o', `рейт. ${sc.rating}`)}</span>`;
+    const rating = `<span class="ds-or">Рейтинг <b>${sc.rating}</b></span>`;
     if (key === 'COACH') {
       const c = coachById(id);
       if (!c) return '';
-      const st = coachStatus(c, curLineup(), state.byId);
-      return `<button class="ds-opt" type="button" data-opt="${esc(c.id)}"><span class="ds-oi coach-thumb">${coachImg(c, true)}</span>
-        <span class="ds-ob"><b class="dn">${esc(c.name)}</b><small class="dt2">${esc(c.team || '')}</small>
-        <span class="dchips">${chip(st.activeCount ? 'g' : 'z', `комбинации ${st.activeCount}/${st.combos.length}`)}${st.total.OVR ? chip('o', `+${st.total.OVR} OVR`) : ''}</span></span></button>`;
+      return `<button class="ds-opt" type="button" data-opt="${esc(c.id)}"><span class="ds-oi coach-thumb">${coachImg(c)}<span class="dnm">${esc(c.name)}</span></span>${rating}</button>`;
     }
     const p = state.byId[id];
     if (!p) return '';
-    let links;
-    if (key === 'CAPTAIN') {
-      links = chip('cap', `👑 встанет: ${esc(SLOT_SHORT(w.slot))}`);
-    } else {
-      const capL = captainLink(p, state.byId[d.picks.CAPTAIN]);
-      const what = [capL.club && 'клуб', capL.nation && 'страна', capL.league && 'лига'].filter(Boolean).join(' · ');
-      links = chip(capL.kind, `👑 ${what || 'нет связи'}`)
-        + slotNeighbours(key).map(n => {
-          const m = state.byId[curLineup()[n]];
-          const l = linkOf(p, m);
-          return l ? chip(l.kind, `🔗 ${esc(m.name.split(' ').slice(-1)[0])} ${l.pts ? `+${l.pts}` : '0'}`) : '';
-        }).join('');
-    }
-    return `<button class="ds-opt" type="button" data-opt="${p.id}"><span class="ds-oi" style="${cardStyle(p)}">${cardImg(p, true)}<span class="dovr">${p.ovr}<small>${esc(p.pos)}</small></span></span>
-      <span class="ds-ob"><b class="dn">${esc(p.name)}</b><small class="dt2">${flag(p.nation)} ${esc(p.team)}</small>${head}<span class="dchips">${links}</span></span></button>`;
+    return `<button class="ds-opt" type="button" data-opt="${p.id}"><span class="ds-oi" style="${cardStyle(p)}">${cardImg(p)}<span class="dovr">${p.ovr}<small>${esc(p.pos)}</small></span><span class="dnm">${esc(p.name)}</span></span>${rating}</button>`;
   }).join('');
   $('#ds-pick').innerHTML = `<div class="ds-sheet">
-    <div class="ds-sh-head"><div><b>${esc(SLOT_SHORT(key))}</b><small>${key === 'CAPTAIN' ? 'капитан сразу встанет в состав' : `выбери 1 из ${d.options.length} · зажми — покажем в составе`}</small></div>
+    <div class="ds-sh-head"><div><b>${esc(SLOT_SHORT(key))}</b><small>1 из ${d.options.length} · зажми — покажем в составе</small></div>
       ${d.order.length ? '<button class="close" type="button" data-pick="close" aria-label="Закрыть">✕</button>' : ''}</div>
     <div class="ds-pv" hidden></div>
     <div class="ds-opts">${cards || '<p class="hint">Нет подходящих карточек</p>'}</div>
