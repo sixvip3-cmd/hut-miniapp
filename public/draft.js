@@ -264,18 +264,21 @@ function withOption(key, id) {
 function renderDraftPick() {
   const d = D();
   const key = d.optKey;
+  const base = draftScoreOf();
   const cards = d.options.map(id => {
     const w = withOption(key, id);
     const sc = draftScoreOf(w.lineup, w.coach, w.captain);
-    const rating = `<span class="ds-or">Рейтинг <b>${sc.rating}</b></span>`;
+    // Под карточкой — рейтинг КОМАНДЫ с этим игроком и на сколько он изменится (OVR игрока — на самой карточке).
+    const dr = sc.rating - base.rating;
+    const rating = `<span class="ds-or">Команда <b>${sc.rating}</b>${base.rating ? `<em class="${dr > 0 ? 'up' : dr < 0 ? 'down' : ''}">${dr > 0 ? `▲${dr}` : dr < 0 ? `▼${-dr}` : '='}</em>` : ''}</span>`;
     if (key === 'COACH') {
       const c = coachById(id);
       if (!c) return '';
-      return `<button class="ds-opt" type="button" data-opt="${esc(c.id)}"><span class="ds-oi coach-thumb">${coachImg(c)}<span class="dnm">${esc(c.name)}</span></span>${rating}</button>`;
+      return `<button class="ds-opt" type="button" data-opt="${esc(c.id)}"><span class="ds-oi coach-thumb">${coachImg(c, true)}${coachImg(c).replace(/^<span class="coach-fallback">[^<]*<\/span>/, '').replace('class="card-img"', 'class="card-img hi"').replace(' loading="lazy"', '')}<span class="dnm">${esc(c.name)}</span></span>${rating}</button>`;
     }
     const p = state.byId[id];
     if (!p) return '';
-    return `<button class="ds-opt" type="button" data-opt="${p.id}"><span class="ds-oi" style="${cardStyle(p)}">${cardImg(p)}<span class="dovr">${p.ovr}<small>${esc(p.pos)}</small></span><span class="dnm">${esc(p.name)}</span></span>${rating}</button>`;
+    return `<button class="ds-opt" type="button" data-opt="${p.id}"><span class="ds-oi" style="${cardStyle(p)}">${cardImg(p, true)}${cardImg(p).replace('class="card-img"', 'class="card-img hi"').replace(' loading="lazy"', '')}<span class="dovr">${p.ovr}<small>${esc(p.pos)}</small></span><span class="dnm">${esc(p.name)}</span></span>${rating}</button>`;
   }).join('');
   $('#ds-pick').innerHTML = `<div class="ds-sheet">
     <div class="ds-sh-head"><div><b>${esc(SLOT_SHORT(key))}</b><small>1 из ${d.options.length} · зажми — покажем в составе</small></div>
