@@ -16,7 +16,8 @@ import { DRAFT_CAP, DRAFT_RULES, DRAFTS_PER_DAY, DRAFT_SLOTS, checkArrangement, 
 import { CHALLENGE_PER_DAY, CHALLENGE_SLOTS, challengeCheck, challengeNow, challengeRules } from './challenge-core.js';
 import { draftBonus, scoreLineup } from './score-core.js';
 import { gameData } from './game-data.js';
-import { draftRewardsOn, isAdmin, now } from './db.js';
+import { draftRewardsOn, firstDraftGiftDays, giftFirstDraft, isAdmin, now } from './db.js';
+import { bot } from './telegram.js';
 
 const json = (data, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
@@ -156,6 +157,13 @@ async function finish(request, env, uid) {
   await env.DB.prepare("UPDATE drafts SET status = 'done', score = ?, breakdown = ?, picks = ?, verified = 1, finished_at = ? WHERE id = ?")
     .bind(score, JSON.stringify(breakdown), JSON.stringify(saved), now(), d.id).run();
   const left = await leftToday(env, uid, mode);
+  // Месяц подписки за первый завершённый драфт (один раз на аккаунт).
+  const gift = await giftFirstDraft(env, uid).catch(() => null);
+  if (gift) {
+    const till = new Date(gift.until * 1000).toLocaleDateString('ru-RU', { timeZone: 'Europe/Moscow' });
+    await bot(env, 'sendMessage', { chat_id: uid, parse_mode: 'HTML',
+      text: `🎁 <b>Спасибо за первый драфт!</b>\nДарим ${gift.days} дней подписки — доступ продлён до <b>${till}</b>.` }).catch(() => {});
+  }
 
   if (mode === 'challenge') {
     // В таблицу челленджа — лучшая попытка недели.
@@ -166,12 +174,12 @@ async function finish(request, env, uid) {
     ).bind(uid, d.week, ch.id, score, JSON.stringify(breakdown), JSON.stringify(saved), now()).run();
     const best = (await env.DB.prepare('SELECT score FROM challenge_entries WHERE user_id = ? AND week = ?').bind(uid, d.week).first()).score;
     const place = await env.DB.prepare('SELECT COUNT(*) + 1 AS n FROM challenge_entries WHERE week = ? AND score > ?').bind(d.week, best).first();
-    return json({ score, breakdown, best, place: place.n, left });
+    return json({ score, breakdown, best, place: place.n, left, gift });
   }
   const place = await env.DB.prepare(
     `SELECT COUNT(*) + 1 AS n FROM (SELECT user_id, MAX(score) AS best FROM drafts WHERE status = 'done' AND mode = 'draft' AND day = ? GROUP BY user_id)
      WHERE best > ?`).bind(d.day, score).first();
-  return json({ score, breakdown, place: place.n, left });
+  return json({ score, breakdown, place: place.n, left, gift });
 }
 
 async function board(request, env, uid) {
@@ -202,5 +210,8 @@ async function board(request, env, uid) {
     activePick: active ? (() => { try { return JSON.parse(active.picks || '{}').order?.length || 0; } catch { return 0; } })() : 0,
     cap: Number.isFinite(DRAFT_CAP) ? DRAFT_CAP : null,
     rewards: draftRewardsOn(env),
+    // Подарок за первый драфт ещё не получен — показываем плашку на вкладке.
+    firstGift: firstDraftGiftDays(env) && !(await env.DB.prepare('SELECT 1 FROM meta WHERE k = ?').bind(`gift_first_draft:${uid}`).first())
+      ? firstDraftGiftDays(env) : 0,
   });
 }

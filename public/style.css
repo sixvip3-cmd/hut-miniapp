@@ -1002,3 +1002,9 @@ body.draft-open .tabbar { display: none; }
 .ds-pick .ds-opts { grid-template-rows: auto auto; align-content: center; }
 .ds-pick .ds-oi { width: 100%; height: auto; max-height: none; flex: none; }
 .ds-pick .ds-oi .card-img { object-fit: cover; }
+
+/* Подарок за первый драфт */
+.dgift { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; padding: 12px 14px; border-radius: 16px;
+  background: linear-gradient(135deg, rgba(52,211,153,.2), rgba(52,211,153,.06)); border: 1px solid rgba(52,211,153,.5); }
+.dgift > span { font-size: 28px; } .dgift b { display: block; font: 600 16px/1.2 var(--display); letter-spacing: .6px; text-transform: uppercase; color: #a7f3d0; }
+.dgift small { font-size: 12px; color: var(--muted); }
