@@ -100,7 +100,7 @@ test('расстановка: менять можно только игроко�
   assert.match(checkArrangement(pool, picks, { ...lu, 'F1-C': other[0] }), /players/);
 });
 
-test('сыгранность как в FIFA: связи с партнёрами по звену и капитаном → 0–10 у игрока, сумма до 100', () => {
+test('сыгранность как в FIFA: связи с партнёрами по звену, пятёрке и капитаном → 0–10 у игрока, сумма до 100', () => {
   const cap = { id: 1, team: 'Edmonton Oilers', nation: 'Canada', league: 'NHL', ovr: 90 };
   const l = linkOf({ team: 'EDMONTON OILERS ALUMNI', nation: 'Canada', league: 'NHLAA' }, cap);
   assert.deepEqual([l.club, l.nation, l.league, l.pts, l.kind], [true, true, false, 5, 'g']);
@@ -118,16 +118,41 @@ test('сыгранность как в FIFA: связи с партнёрами 
   };
   const same = { team: 'Edmonton Oilers', nation: 'Canada', league: 'NHL' };
   assert.equal(make(() => same).total, 100);
-  // Никто ни с кем не связан: капитан 9 (связь «сам с собой»), остальные по 1 → (9 + 19) / 170.
-  assert.equal(make(i => ({ team: `X${i}`, nation: `Y${i}`, league: `Z${i}` })).total, Math.round(28 * 100 / 170));
+  // Никто ни с кем не связан: у капитана (F1-LW) связи C 0, LD 0, «сам с собой» 2 → 7; остальные по 1 → (7 + 19) / 170.
+  assert.equal(make(i => ({ team: `X${i}`, nation: `Y${i}`, league: `Z${i}` })).total, Math.round(26 * 100 / 170));
   // Звенья сыграны между собой, но не с капитаном — как в FIFA, этого почти хватает на 100.
-  const lines = make((i, k) => ({ team: `T-${k.split('-')[0]}`, nation: `N-${k.split('-')[0]}`, league: 'L' }));
+  // Пятёрка: звено N и защита N из одного клуба (F4 и вратари — отдельно).
+  const unit = k => (/^[FD][123]-/.test(k) ? k[1] : k.split('-')[0]);
+  const lines = make((i, k) => ({ team: `T-${unit(k)}`, nation: `N-${unit(k)}`, league: 'L' }));
   assert.equal(lines.links.filter(x => x.kind === 'g').length, lines.links.length - 1); // кроме связи с капитаном в F1
   assert.ok(lines.total >= 90, `звенья без капитана: ${lines.total}`);
   // Половина состава вообще без связей — заметно ниже.
   const half = make((i, k) => (i < 10 ? same : { team: `X${i}`, nation: `Y${i}`, league: `Z${i}` }));
   assert.ok(half.total > 40 && half.total < 80, `половина без связей: ${half.total}`);
   assert.equal(teamChem({}, null, {}).total, 0);
+});
+
+test('защита сыгрывается с нападением своей пятёрки: LW ↔ LD, RW ↔ RD', () => {
+  const byId = { 1: { id: 1, pos: 'G', team: 'CAP', nation: 'C', league: 'CL', ovr: 90 } };
+  const lineup = {};
+  DRAFT_SLOTS.forEach((k, i) => {
+    if (k === 'G-STARTER') { lineup[k] = 1; return; }
+    byId[i + 100] = { id: i + 100, pos: slotPosOf(k), team: `Z${i}`, nation: `Q${i}`, league: `L${i}`, ovr: 80 };
+    lineup[k] = i + 100;
+  });
+  const base = teamChem(lineup, 1, byId);
+  assert.equal(base.cross.length, 6);
+  assert.ok(base.cross.every(l => l.kind === 'r'));
+  // Левый защитник первой пары — из клуба левого нападающего первого звена.
+  byId[lineup['D1-LD']] = { ...byId[lineup['D1-LD']], team: byId[lineup['F1-LW']].team, nation: byId[lineup['F1-LW']].nation };
+  const linked = teamChem(lineup, 1, byId);
+  assert.equal(linked.cross.find(l => l.a === 'F1-LW' && l.b === 'D1-LD').kind, 'g');
+  assert.ok(linked.players['D1-LD'].pts > base.players['D1-LD'].pts);
+  assert.ok(linked.players['F1-LW'].pts > base.players['F1-LW'].pts);
+  assert.ok(linked.total > base.total);
+  // С другой стороной и с другим звеном связи нет.
+  assert.equal(linked.players['F1-RW'].pts, base.players['F1-RW'].pts);
+  assert.equal(linked.players['F2-LW'].pts, base.players['F2-LW'].pts);
 });
 
 test('перестановка игроков одной позиции меняет сыгранность', () => {

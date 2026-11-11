@@ -151,7 +151,10 @@ function renderDraftScreen() {
     const links = team.links.filter(l => l.a.startsWith(`${line.id}-`));
     const filled = keys.filter(k => team.players[k]).length;
     const chem = filled ? Math.round((keys.reduce((t, k) => t + (team.players[k]?.chem || 0), 0) / filled) * 100) : 0;
-    return `<div class="ds-line"><div class="ds-lh"><span>${esc(line.label.replace('Звено ', 'Звено\u00a0'))}</span><em class="${chem >= 67 ? 'g' : chem >= 34 ? 'y' : 'r'}">${filled ? `⚗ ${chem}` : ''}</em></div>
+    // Пара защиты N играет со звеном N: показываем связи LW↔LD и RW↔RD.
+    const cross = line.cat === 'D' ? team.cross.filter(l => l.b.startsWith(`${line.id}-`)) : [];
+    const crossHtml = cross.length ? `<span class="ds-cross" title="Связь с нападением звена ${line.id.slice(1)}">⇄зв.${line.id.slice(1)}${cross.map(l => `<i class="lk ${l.kind || 'z'}"></i>`).join('')}</span>` : '';
+    return `<div class="ds-line"><div class="ds-lh"><span>${esc(line.label.replace('Звено ', 'Звено\u00a0'))}${crossHtml}</span><em class="${chem >= 67 ? 'g' : chem >= 34 ? 'y' : 'r'}">${filled ? `⚗ ${chem}` : ''}</em></div>
       <div class="ds-slots n${keys.length}">${keys.map(k => miniCard(k, lineup, team, open)).join('')}
         ${links.map((l, i) => `<span class="ds-link n${keys.length} i${i}${l.kind ? ` ${l.kind}` : ''}"></span>`).join('')}</div></div>`;
   }).join('');
@@ -484,7 +487,7 @@ async function renderDraftHome() {
       <div class="steps"><div class="st"><span class="ic">👑</span><b>Капитан</b><small>сразу в состав</small></div><i class="ar">→</i>
         <div class="st"><span class="ic">🏒</span><b>19 + тренер</b><small>в любом порядке</small></div><i class="ar">→</i>
         <div class="st"><span class="ic">🔀</span><b>Расстановка</b><small>меняй местами</small></div></div>
-      <div class="rules"><span>🎴 1 из ${DRAFT_OPTIONS} на пик</span><span>🧭 позицию выбираешь сам</span><span>🔄 ${DRAFT_REROLLS} перевыброса</span><span>💸 без лимита зарплаты</span><span>⚗️ сыгранность: капитан + звено</span></div>
+      <div class="rules"><span>🎴 1 из ${DRAFT_OPTIONS} на пик</span><span>🧭 позицию выбираешь сам</span><span>🔄 ${DRAFT_REROLLS} перевыброса</span><span>💸 без лимита зарплаты</span><span>⚗️ сыгранность: капитан + звено + пятёрка</span></div>
       ${b.active ? `<div class="resume"><div><b>Незаконченный драфт</b><small>${resumePick ? `пик ${Math.min(resumePick + 1, DRAFT_PICKS)} из ${DRAFT_PICKS}` : 'можно продолжить'}</small></div>
         <button class="ghostbtn sm" data-draft-act="resume">Продолжить</button></div>` : ''}
       <div class="meta3"><div><b>${b.today.best || '—'}</b><small>лучший сегодня</small></div><div><b>${b.me && state.draftPeriod === 'day' ? `#${b.me.place}` : '—'}</b><small>место за день</small></div>

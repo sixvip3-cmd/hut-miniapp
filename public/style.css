@@ -969,3 +969,8 @@ body.draft-open .tabbar { display: none; }
 .dr-ring b { font: 600 36px/1 var(--display); } .dr-ring small { font: 600 8.5px/1 var(--display); letter-spacing: 1.3px; color: var(--muted); margin-top: 3px; }
 .dr-tot { margin: 4px 0 6px; } .dr-tot b { font: 700 34px/1 var(--display); color: #ffe3a3; } .dr-tot small { margin-left: 6px; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { .ds-bar i, .ds-card, .ds-sheet { transition: none; } .ds-card.ghost { animation: none; } }
+
+/* Связь пары защиты со звеном нападения (пятёрка) */
+.ds-cross { margin-left: 5px; font: 600 9px/1 var(--display); letter-spacing: .2px; text-transform: none; color: var(--muted); white-space: nowrap; }
+.ds-cross .lk { width: 9px; margin: 0 0 1px 3px; }
+.lk.z { background: #24365c; }
