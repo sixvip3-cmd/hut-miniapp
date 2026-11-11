@@ -3,7 +3,7 @@
 //
 // Две шкалы, у каждой максимум 100:
 //   Рейтинг — средний OVR 20 игроков (с прибавкой OVR от сработавших комбинаций тренера в их звене).
-//   Сыгранность — как в FIFA: связи игрока с партнёрами по звену и с капитаном (клуб +3, страна +2,
+//   Сыгранность — как в FIFA: связи игрока с партнёрами по звену, по пятёрке (защита N ↔ звено N) и с капитаном (клуб +3, страна +2,
 //     лига +1 → 4+ сильная, 1–3 частичная, 0 нет) дают ему 0–10; сумма по 20 игрокам, 170+ = 100.
 // Итог для таблицы — сумма шкал (до 200).
 // В приложение этот файл попадает как обычный скрипт (scripts/build-site.js убирает import/export).
@@ -32,17 +32,23 @@ export function linkOf(a, b) {
 // Совместимость: связь с капитаном (без капитана — нули).
 export const captainLink = (p, cap) => linkOf(p, cap) || { club: false, nation: false, league: false, pts: 0, kind: 'r' };
 
-// Партнёры слота по звену: LW–C–RW (у центра двое), пара защитников, пара вратарей.
+// Пятёрки: пара защиты N играет со звеном нападения N (1–3). Левый защитник связан с левым
+// нападающим, правый — с правым.
+export const CROSS_LINKS = [1, 2, 3].flatMap(n => [[`F${n}-LW`, `D${n}-LD`], [`F${n}-RW`, `D${n}-RD`]]);
+const crossOf = key => CROSS_LINKS.filter(([a, b]) => a === key || b === key).map(([a, b]) => (a === key ? b : a));
+
+// Партнёры слота: по звену (LW–C–RW, у центра двое; пара защитников; пара вратарей)
+// и по пятёрке (крайний нападающий ↔ защитник той же стороны).
 export function slotNeighbours(key) {
   const [lineId, slot] = key.split('-');
   const line = LINES.find(l => l.id === lineId);
   if (!line) return [];
   const i = line.slots.indexOf(slot);
-  return [line.slots[i - 1], line.slots[i + 1]].filter(Boolean).map(s => `${lineId}-${s}`);
+  return [...[line.slots[i - 1], line.slots[i + 1]].filter(Boolean).map(s => `${lineId}-${s}`), ...crossOf(key)];
 }
 
 // Сыгранность — как в FIFA. Связь двух игроков: сильная (зелёная) = 2, частичная (жёлтая) = 1, нет (красная) = 0.
-// У каждого игрока — связи с партнёрами по звену и с капитаном (капитан — как «лояльность/менеджер» в FIFA).
+// У каждого игрока — связи с партнёрами по звену, по пятёрке и с капитаном (капитан — как «лояльность/менеджер» в FIFA).
 // Средняя сила связей → сыгранность игрока 0–10 (как в FIFA: почти всё жёлтое уже даёт 9 из 10).
 // Сыгранность команды — сумма по 20 игрокам, CHEM_FULL и больше = 100 (как в FIFA сумма 11 игроков упирается в 100).
 export const LINK_VALUE = { g: 2, y: 1, r: 0 };
@@ -57,11 +63,16 @@ export function playerChem(avg) {
 }
 const starsOf = pts => (pts >= 9 ? 3 : pts >= 6 ? 2 : pts >= 3 ? 1 : 0);
 
-// { total 0–100, sum, players: { slot: { pts 0–10, chem 0…1, stars 0–3, avg } }, links: [{ a, b, pts, kind }], capSlot, byLine }
+// { total 0–100, sum, players: { slot: { pts 0–10, chem 0…1, stars 0–3, avg } }, links: [{ a, b, pts, kind }] (в звене),
+//   cross: [{ a, b, pts, kind }] (нападающий ↔ защитник пятёрки), capSlot, byLine }
 export function teamChem(lineup, captainId, byId) {
   const cap = captainId != null ? byId[captainId] : null;
   const capSlot = cap ? SLOT_KEYS.find(k => lineup[k] === captainId) || null : null;
-  const out = { total: 0, sum: 0, players: {}, links: [], capSlot, byLine: {} };
+  const out = { total: 0, sum: 0, players: {}, links: [], cross: [], capSlot, byLine: {} };
+  for (const [a, b] of CROSS_LINKS) {
+    const l = linkOf(byId[lineup[a]], byId[lineup[b]]);
+    out.cross.push({ a, b, pts: l ? l.pts : null, kind: l ? l.kind : null });
+  }
   for (const line of LINES) {
     out.byLine[line.id] = 0;
     for (let i = 1; i < line.slots.length; i++) {
