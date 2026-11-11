@@ -142,3 +142,8 @@ INSERT OR IGNORE INTO meta (k, v) VALUES ('trial_reset_v1', 'done');
 -- один раз помечаем их устаревшими (не засчитываются, попытку не тратят; отметка draft_unique_v1).
 UPDATE drafts SET status = 'expired' WHERE status = 'active' AND NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_unique_v1');
 INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_unique_v1', 'done');
+
+-- Растянутая шкала рейтинга (OVR 78 = 0, 90 = 100): старые результаты посчитаны иначе — один раз очищаем (draft_reset_v5).
+DELETE FROM drafts WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v5');
+DELETE FROM challenge_entries WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v5');
+INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_reset_v5', 'done');

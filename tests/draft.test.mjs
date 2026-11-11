@@ -198,7 +198,8 @@ test('оценка: рейтинг (средний OVR) + сыгранность
   const ids = Object.values(lu);
   assert.equal(ids.length, 20);
   const avg = ids.reduce((t, id) => t + data.byId[id].ovr, 0) / ids.length;
-  assert.equal(sc.rating, Math.round(avg));
+  assert.equal(sc.ovr, Math.round(avg * 10) / 10);
+  assert.equal(sc.rating, Math.max(0, Math.min(100, Math.round(((avg - 78) / 12) * 100))));
   assert.equal(sc.chem, teamChem(lu, picks.CAPTAIN, data.byId).total);
   assert.equal(sc.total, sc.rating + sc.chem);
   const withCoach = scoreLineup(lu, picks.CAPTAIN, picks.COACH, data);

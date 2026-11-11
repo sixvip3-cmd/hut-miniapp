@@ -151,7 +151,7 @@ async function finish(request, env, uid) {
   // Рейтинг и сыгранность сервер считает сам — тем же кодом, что приложение (score-core.js).
   const sc = scoreLineup(lineup, picks.CAPTAIN, picks.COACH, data);
   const score = sc.total;
-  const breakdown = { rating: sc.rating, chem: sc.chem, total: sc.total, avgOvr: sc.avgOvr, coachOvr: sc.coachOvr,
+  const breakdown = { rating: sc.rating, ovr: sc.ovr, chem: sc.chem, total: sc.total, avgOvr: sc.avgOvr, coachOvr: sc.coachOvr,
     cap: Number.isFinite(rules.cap) ? rules.cap : null };
   const saved = { ...picks, lineup, order };
   await env.DB.prepare("UPDATE drafts SET status = 'done', score = ?, breakdown = ?, picks = ?, verified = 1, finished_at = ? WHERE id = ?")
