@@ -50,6 +50,21 @@ export async function extendDays(env, userId, days) {
   return until;
 }
 
+// Подарок за первый завершённый драфт (или челлендж): FIRST_DRAFT_GIFT_DAYS дней (по умолчанию 30), один раз на аккаунт.
+// Отметка в meta (gift_first_draft:<id>) переживает обнуления таблиц драфта, поэтому повторно не выдаётся.
+export const firstDraftGiftDays = env => Math.max(0, Number(env.FIRST_DRAFT_GIFT_DAYS ?? 30));
+export async function giftFirstDraft(env, userId) {
+  const days = firstDraftGiftDays(env);
+  if (!days) return null;
+  const res = await env.DB.prepare("INSERT OR IGNORE INTO meta (k, v) VALUES (?, ?)").bind(`gift_first_draft:${userId}`, String(now())).run();
+  if (!res.meta?.changes) return null;
+  const sub = await getSubscription(env, userId);
+  const until = Math.max(now(), sub?.until || 0) + days * DAY;
+  // Пробный период после подарка — уже не «пробный»: иначе придут напоминания об окончании пробного.
+  await setUntil(env, userId, until, !sub?.charge_id || sub.charge_id === 'trial' ? 'bonus' : sub.charge_id);
+  return { days, until };
+}
+
 // ---------- Пробный период ----------
 export async function trialAvailable(env, userId) {
   if (!trialDays(env)) return false;

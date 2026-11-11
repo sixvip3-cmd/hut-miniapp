@@ -383,7 +383,7 @@ async function finishDraft() {
     const b = res.breakdown || {};
     state.draftResult = { rating: b.rating ?? sc.rating, chem: b.chem ?? sc.chem, total: res.score, avgOvr: b.avgOvr ?? sc.avgOvr,
       coachOvr: b.coachOvr ?? sc.coachOvr, coachInfo: sc.coachInfo, place: res.place, best: res.best, left: res.left,
-      mode: d.mode, ch: d.ch, picks: { ...d.picks }, lineup: curLineup() };
+      mode: d.mode, ch: d.ch, picks: { ...d.picks }, lineup: curLineup(), gift: res.gift || null };
     clearDraftLocal(d.mode);
     closeDraftScreen();
     state.draftResultShown = true;
@@ -412,7 +412,9 @@ function renderDraftResult() {
   const coach = r.picks.COACH ? coachById(r.picks.COACH) : null;
   const ring = (v, cls, label) => `<div class="dr-ring ${cls}"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="tr"/>
     <circle cx="60" cy="60" r="52" class="vl" stroke-dasharray="327" stroke-dashoffset="${(327 * (1 - Math.min(1, v / 100))).toFixed(0)}"/></svg><b>${v}</b><small>${label}</small></div>`;
+  const giftTill = r.gift ? new Date(r.gift.until * 1000).toLocaleDateString('ru-RU') : '';
   $('#draft-home').innerHTML = `
+    ${r.gift ? `<div class="dgift"><span>🎁</span><div><b>${r.gift.days === 30 ? 'Месяц подписки' : `${r.gift.days} дней подписки`} в подарок!</b><small>За первый драфт · доступ до ${giftTill}</small></div></div>` : ''}
     <section class="glass dres2">
       <div class="dk">${r.mode === 'challenge' ? `ЧЕЛЛЕНДЖ · ${esc(r.ch?.title || '')}` : 'ДРАФТ ЗАВЕРШЁН'}</div>
       <div class="dr-rings">${ring(r.rating, 'r', 'РЕЙТИНГ')}${ring(r.chem, 'c', 'СЫГРАННОСТЬ')}</div>
@@ -460,6 +462,7 @@ async function renderDraftHome() {
   const left = b.left > 50 ? '∞' : b.left;
   el.innerHTML = `
     ${b.rewards ? '' : `<div class="dtest"><b>ТЕСТ</b><span>Драфт и челлендж в тестовом режиме: правила и оценка ещё могут меняться, таблицы — обнуляться. Наград пока нет.</span></div>`}
+    ${b.firstGift ? `<div class="dgift"><span>🎁</span><div><b>${b.firstGift === 30 ? 'Месяц подписки' : `${b.firstGift} дней подписки`} в подарок</b><small>Заверши свой первый драфт или челлендж — доступ продлится автоматически</small></div></div>` : ''}
     <section class="ddraft glass"><div class="dk">ДРАФТ</div>
       <h2>Собери команду из случайных карточек</h2>
       <p class="dsub">Сам выбираешь позицию — на неё выпадает 4 случайных карточки. В конце расставь игроков для лучшей сыгранности</p>
