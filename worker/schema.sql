@@ -137,3 +137,8 @@ INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_reset_v4', 'done');
 -- все, кто уже брал пробный, могут взять его снова. Оплатившие и текущий доступ не затрагиваются.
 DELETE FROM trials WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'trial_reset_v1');
 INSERT OR IGNORE INTO meta (k, v) VALUES ('trial_reset_v1', 'done');
+
+-- Без повторов одного игрока в раздаче варианты пиков изменились: незаконченные попытки уже не проверить —
+-- один раз помечаем их устаревшими (не засчитываются, попытку не тратят; отметка draft_unique_v1).
+UPDATE drafts SET status = 'expired' WHERE status = 'active' AND NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_unique_v1');
+INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_unique_v1', 'done');

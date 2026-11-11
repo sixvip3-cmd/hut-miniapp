@@ -67,6 +67,26 @@ test('капитан сразу в составе: его слот не разы
   }
 });
 
+test('в одной раздаче нет двух карточек одного игрока', () => {
+  let deals = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const picks = {};
+    for (let i = 0; i < DRAFT_PICKS; i++) {
+      const open = openPicks(pool, picks);
+      const key = open[(seed * 31 + i * 17) % open.length];
+      const dealt = draftDeal(pool, seed, i, 0, picks, key);
+      const opts = finalOptions(dealt, key, seed, i, id => bonus(key, id, picks));
+      if (key !== 'COACH') {
+        const names = opts.map(id => data.byId[id].name.trim().toLowerCase());
+        assert.equal(new Set(names).size, names.length, `seed ${seed}, ${key}: ${names.join(', ')}`);
+        deals++;
+      }
+      picks[key] = opts[0];
+    }
+  }
+  assert.ok(deals > 700);
+});
+
 test('подменённый пик, чужой порядок и лишние перевыбросы отклоняются', () => {
   const seed = 42;
   const { picks, rerolls, order } = playDraft(seed);

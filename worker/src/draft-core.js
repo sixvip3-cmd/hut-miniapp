@@ -73,14 +73,14 @@ export function draftDeal(pool, seed, pickIndex, reroll, picks, key, rules = DRA
   const byId = poolIndex(pool);
   const taken = new Set(Object.entries(picks).filter(([k]) => k !== 'COACH').map(([, id]) => byId.get(id)?.[4]).filter(Boolean).map(nameKey));
   if (key === 'CAPTAIN') {
-    const caps = pool.captains.filter(id => byId.has(id)).map(id => ({ id, w: weight(byId.get(id)[3]) }));
+    const caps = pool.captains.filter(id => byId.has(id)).map(id => ({ id, w: weight(byId.get(id)[3]), name: nameKey(byId.get(id)[4]) }));
     if (!rules.allow) return deal(caps, rand, 0);
     // Челлендж: капитан стоит в составе, значит должен подходить под условие недели. Сначала карточки
     // капитанов под условие; если их меньше четырёх — добираем подходящими игроками (они станут капитаном).
     const first = sample(caps.filter(c => rules.allow(c.id)), rand, DRAFT_OPTIONS);
     if (first.length >= DRAFT_OPTIONS) return { opts: first, extra: [] };
     const names = new Set(first.map(id => nameKey(byId.get(id)[4])));
-    const rest = allowed(pool, rules).filter(p => !names.has(nameKey(p[4]))).map(p => ({ id: p[0], w: weight(p[3]) }));
+    const rest = allowed(pool, rules).filter(p => !names.has(nameKey(p[4]))).map(p => ({ id: p[0], w: weight(p[3]), name: nameKey(p[4]) }));
     return { opts: [...first, ...sample(rest, rand, DRAFT_OPTIONS - first.length)], extra: [] };
   }
   // Оставляем запас на каждый ещё не выбранный слот, поэтому на любом пике есть хотя бы одна карточка,
@@ -192,6 +192,15 @@ function sample(cands, rand, n = DRAFT_OPTIONS) {
   }
   let top = 1;
   while (top * 2 <= N) top *= 2;
+  // Разные карточки одного игрока (по имени) в одну раздачу не попадают: вытянули — убираем все его карточки.
+  const sameName = new Map();
+  cands.forEach((c, i) => { if (c.name) (sameName.get(c.name) || sameName.set(c.name, []).get(c.name)).push(i); });
+  const drop = i => {
+    if (!w[i]) return;
+    for (let j = i + 1; j <= N; j += j & -j) tree[j] -= w[i];
+    total -= w[i];
+    w[i] = 0;
+  };
   const out = [];
   while (out.length < n && total > 0) {
     let rem = Math.floor(rand() * total);
@@ -200,9 +209,8 @@ function sample(cands, rand, n = DRAFT_OPTIONS) {
       if (pos + step <= N && tree[pos + step] <= rem) { pos += step; rem -= tree[pos]; }
     }
     out.push(cands[pos].id);
-    for (let j = pos + 1; j <= N; j += j & -j) tree[j] -= w[pos];
-    total -= w[pos];
-    w[pos] = 0;
+    if (cands[pos].name) for (const i of sameName.get(cands[pos].name)) drop(i);
+    else drop(pos);
   }
   return out;
 }
