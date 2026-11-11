@@ -132,3 +132,8 @@ INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_reset_v3', 'done');
 DELETE FROM drafts WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v4');
 DELETE FROM challenge_entries WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'draft_reset_v4');
 INSERT OR IGNORE INTO meta (k, v) VALUES ('draft_reset_v4', 'done');
+
+-- Повторный пробный период: один раз очищаем записи о взятых пробных периодах (отметка trial_reset_v1) —
+-- все, кто уже брал пробный, могут взять его снова. Оплатившие и текущий доступ не затрагиваются.
+DELETE FROM trials WHERE NOT EXISTS (SELECT 1 FROM meta WHERE k = 'trial_reset_v1');
+INSERT OR IGNORE INTO meta (k, v) VALUES ('trial_reset_v1', 'done');
