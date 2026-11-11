@@ -171,7 +171,7 @@ function renderDraftScreen() {
       <span class="ds-rr" title="Перевыбросы">🔄 ${d.rerollsLeft}</span>
     </header>
     <div class="ds-meters">
-      <div class="ds-m"><span>Рейтинг${sc.ovr ? ` · OVR ${sc.ovr.toFixed(1)}` : ''}</span><b>${sc.ovr ? sc.rating : '—'}<small>/100</small></b><div class="ds-bar r"><i style="width:${sc.rating}%"></i></div></div>
+      <div class="ds-m"><span>Рейтинг${sc.ovr ? ` · ${sc.rating} очк.` : ''}</span><b>${sc.ovr ? sc.ovr.toFixed(1) : '—'}<small>OVR</small></b><div class="ds-bar r"><i style="width:${sc.rating}%"></i></div></div>
       <div class="ds-m"><span>Сыгранность</span><b>${sc.chem}<small>/100</small></b><div class="ds-bar c"><i style="width:${sc.chem}%"></i></div></div>
       <div class="ds-tot"><b>${sc.total}</b><small>из 200</small></div>
     </div>
@@ -316,7 +316,7 @@ function startPickPreview(opt) {
   $('#ds-pick').classList.add('peek');
   const pv = $('#ds-pick .ds-pv');
   pv.hidden = false;
-  pv.innerHTML = `Рейтинг ${before.ovr ? before.rating : '—'} → <b>${after.rating}</b> · сыгранность ${before.chem} → <b class="${after.chem > before.chem ? 'up' : ''}">${after.chem}</b>`;
+  pv.innerHTML = `Рейтинг ${before.ovr ? before.ovr.toFixed(1) : '—'} → <b>${after.ovr.toFixed(1)}</b> · сыгранность ${before.chem} → <b class="${after.chem > before.chem ? 'up' : ''}">${after.chem}</b>`;
   renderDraftScreen();
   document.querySelector(`#draft-screen [data-slot="${d.preview.slot}"]`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
   haptic('light');
@@ -414,15 +414,15 @@ function renderDraftResult() {
   const r = state.draftResult;
   const cap = state.byId[r.picks.CAPTAIN];
   const coach = r.picks.COACH ? coachById(r.picks.COACH) : null;
-  const ring = (v, cls, label) => `<div class="dr-ring ${cls}"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="tr"/>
-    <circle cx="60" cy="60" r="52" class="vl" stroke-dasharray="327" stroke-dashoffset="${(327 * (1 - Math.min(1, v / 100))).toFixed(0)}"/></svg><b>${v}</b><small>${label}</small></div>`;
+  const ring = (v, cls, label, shown = v) => `<div class="dr-ring ${cls}"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="52" class="tr"/>
+    <circle cx="60" cy="60" r="52" class="vl" stroke-dasharray="327" stroke-dashoffset="${(327 * (1 - Math.min(1, v / 100))).toFixed(0)}"/></svg><b>${shown}</b><small>${label}</small></div>`;
   const giftTill = r.gift ? new Date(r.gift.until * 1000).toLocaleDateString('ru-RU') : '';
   $('#draft-home').innerHTML = `
     ${r.gift ? `<div class="dgift"><span>🎁</span><div><b>${r.gift.days === 30 ? 'Месяц подписки' : `${r.gift.days} дней подписки`} в подарок!</b><small>За первый драфт · доступ до ${giftTill}</small></div></div>` : ''}
     <section class="glass dres2">
       <div class="dk">${r.mode === 'challenge' ? `ЧЕЛЛЕНДЖ · ${esc(r.ch?.title || '')}` : 'ДРАФТ ЗАВЕРШЁН'}</div>
-      <div class="dr-rings">${ring(r.rating, 'r', 'РЕЙТИНГ')}${ring(r.chem, 'c', 'СЫГРАННОСТЬ')}</div>
-      <div class="dr-tot"><b>${r.total}</b><small>из 200</small></div>
+      <div class="dr-rings">${ring(r.rating, 'r', 'РЕЙТИНГ · OVR', Number(r.ovr ?? r.avgOvr).toFixed(1))}${ring(r.chem, 'c', 'СЫГРАННОСТЬ')}</div>
+      <div class="dr-tot"><b>${r.total}</b><small>из 200</small><em>${r.rating} за рейтинг + ${r.chem} за сыгранность</em></div>
       <div class="place">${r.mode === 'challenge'
         ? `<b>#${r.place}</b> в челлендже · лучший за неделю: ${r.best ?? r.total} · попыток сегодня: ${r.left > 50 ? '∞' : r.left}`
         : `<b>#${r.place}</b> за сегодня · драфтов осталось: ${r.left > 50 ? '∞' : r.left}`}</div></section>
@@ -432,7 +432,7 @@ function renderDraftResult() {
       <div class="sr"><span class="badge coach-thumb">${coach ? coachImg(coach, true) : ''}</span><div><small>ТРЕНЕР</small><b>${esc(coach?.name || '—')}</b>
         <span class="${r.coachInfo?.active ? 'ok' : 'muted'}">${r.coachInfo ? `${r.coachInfo.active}/${r.coachInfo.of} комбинаций${r.coachOvr ? ` · +${r.coachOvr} OVR` : ''}` : ''}</span></div></div></section>
     <section class="glass brk"><div class="dk">ИЗ ЧЕГО СЛОЖИЛОСЬ</div>
-      <div class="br"><span>Рейтинг команды</span><em>OVR ${r.ovr ?? r.avgOvr}${r.coachOvr ? ' с тренером' : ''} · 78 = 0, 90 = 100</em><b>${r.rating}</b></div>
+      <div class="br"><span>Рейтинг ${Number(r.ovr ?? r.avgOvr).toFixed(1)} OVR</span><em>очки: 78 = 0, 90 = 100</em><b>${r.rating}</b></div>
       <div class="br"><span>Сыгранность</span><em>с капитаном + в звеньях</em><b>${r.chem}</b></div>
       <div class="br tot"><span>Итог</span><em>из 200</em><b>${r.total}</b></div></section>
     <div class="dgrid">${DRAFT_SLOTS.map(k => { const p = state.byId[r.lineup[k]]; return `<div class="dmini" style="${p ? cardStyle(p) : ''}">${p ? cardImg(p, true) : ''}</div>`; }).join('')}</div>
@@ -522,7 +522,7 @@ $('#draft-home').addEventListener('click', e => {
   if (act === 'share') {
     const r = state.draftResult;
     const link = state.me?.refLink || '';
-    const what = `рейтинг ${r.rating}, сыгранность ${r.chem} — ${r.total} из 200`;
+    const what = `рейтинг ${Number(r.ovr ?? r.avgOvr).toFixed(1)} OVR, сыгранность ${r.chem} — ${r.total} из 200`;
     const text = r.mode === 'challenge'
       ? `🏒 Челлендж «${r.ch?.title || ''}» в HUT Builder: ${what} (#${r.place}). Побьёшь?`
       : `🏒 Драфт в HUT Builder: ${what} (#${r.place} за сегодня). Побьёшь?`;
