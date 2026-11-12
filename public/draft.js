@@ -171,7 +171,7 @@ function renderDraftScreen() {
       <span class="ds-rr" title="Перевыбросы">🔄 ${d.rerollsLeft}</span>
     </header>
     <div class="ds-meters">
-      <div class="ds-m"><span>Рейтинг${sc.ovr ? ` · ${sc.rating} очк.` : ''}</span><b>${sc.ovr ? sc.ovr.toFixed(1) : '—'}<small>OVR</small></b><div class="ds-bar r"><i style="width:${sc.rating}%"></i></div></div>
+      <div class="ds-m"><span>Рейтинг${sc.ovr ? ` → ${sc.rating} в итог` : ''}</span><b>${sc.ovr ? sc.ovr.toFixed(1) : '—'}<small>OVR</small></b><div class="ds-bar r"><i style="width:${sc.rating}%"></i></div></div>
       <div class="ds-m"><span>Сыгранность</span><b>${sc.chem}<small>/100</small></b><div class="ds-bar c"><i style="width:${sc.chem}%"></i></div></div>
       <div class="ds-tot"><b>${sc.total}</b><small>из 200</small></div>
     </div>
@@ -422,7 +422,7 @@ function renderDraftResult() {
     <section class="glass dres2">
       <div class="dk">${r.mode === 'challenge' ? `ЧЕЛЛЕНДЖ · ${esc(r.ch?.title || '')}` : 'ДРАФТ ЗАВЕРШЁН'}</div>
       <div class="dr-rings">${ring(r.rating, 'r', 'РЕЙТИНГ · OVR', Number(r.ovr ?? r.avgOvr).toFixed(1))}${ring(r.chem, 'c', 'СЫГРАННОСТЬ')}</div>
-      <div class="dr-tot"><b>${r.total}</b><small>из 200</small><em>${r.rating} за рейтинг + ${r.chem} за сыгранность</em></div>
+      <div class="dr-tot"><b>${r.total}</b><small>из 200</small><em>рейтинг ${Number(r.ovr ?? r.avgOvr).toFixed(1)} OVR → ${r.rating} очков + сыгранность ${r.chem}</em></div>
       <div class="place">${r.mode === 'challenge'
         ? `<b>#${r.place}</b> в челлендже · лучший за неделю: ${r.best ?? r.total} · попыток сегодня: ${r.left > 50 ? '∞' : r.left}`
         : `<b>#${r.place}</b> за сегодня · драфтов осталось: ${r.left > 50 ? '∞' : r.left}`}</div></section>
@@ -432,7 +432,7 @@ function renderDraftResult() {
       <div class="sr"><span class="badge coach-thumb">${coach ? coachImg(coach, true) : ''}</span><div><small>ТРЕНЕР</small><b>${esc(coach?.name || '—')}</b>
         <span class="${r.coachInfo?.active ? 'ok' : 'muted'}">${r.coachInfo ? `${r.coachInfo.active}/${r.coachInfo.of} комбинаций${r.coachOvr ? ` · +${r.coachOvr} OVR` : ''}` : ''}</span></div></div></section>
     <section class="glass brk"><div class="dk">ИЗ ЧЕГО СЛОЖИЛОСЬ</div>
-      <div class="br"><span>Рейтинг ${Number(r.ovr ?? r.avgOvr).toFixed(1)} OVR</span><em>очки: 78 = 0, 90 = 100</em><b>${r.rating}</b></div>
+      <div class="br"><span>Рейтинг ${Number(r.ovr ?? r.avgOvr).toFixed(1)} OVR</span><em>в очки: 78 → 0, 90 → 100</em><b>${r.rating}</b></div>
       <div class="br"><span>Сыгранность</span><em>с капитаном + в звеньях</em><b>${r.chem}</b></div>
       <div class="br tot"><span>Итог</span><em>из 200</em><b>${r.total}</b></div></section>
     <div class="dgrid">${DRAFT_SLOTS.map(k => { const p = state.byId[r.lineup[k]]; return `<div class="dmini" style="${p ? cardStyle(p) : ''}">${p ? cardImg(p, true) : ''}</div>`; }).join('')}</div>
